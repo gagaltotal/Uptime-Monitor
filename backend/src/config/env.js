@@ -29,6 +29,21 @@ const env = {
   MIN_CHECK_INTERVAL_SECONDS: parseInt(process.env.MIN_CHECK_INTERVAL_SECONDS, 10) || 20,
 
   TRUST_PROXY: process.env.TRUST_PROXY === 'true',
+
+  // --- Migrations & seeding ---
+  // Migrations run automatically on boot by default: they're idempotent and
+  // the app can misbehave against an un-migrated schema, so "on" is the safe
+  // default. Set AUTO_MIGRATE=false to manage them manually via `npm run migrate`.
+  AUTO_MIGRATE: process.env.AUTO_MIGRATE !== 'false',
+
+  SEED_ADMIN_NAME: process.env.SEED_ADMIN_NAME || 'Administrator',
+  SEED_ADMIN_EMAIL: process.env.SEED_ADMIN_EMAIL || '',
+  SEED_ADMIN_PASSWORD: process.env.SEED_ADMIN_PASSWORD || '',
+  // Seeding on boot is opt-in: it only happens when SEED_ADMIN_EMAIL is set,
+  // so the default first-run experience stays the interactive /setup page.
+  AUTO_SEED_ADMIN:
+    process.env.AUTO_SEED_ADMIN === 'true' ||
+    (process.env.AUTO_SEED_ADMIN !== 'false' && !!process.env.SEED_ADMIN_EMAIL),
 };
 
 function assertValidEnv() {
@@ -65,6 +80,27 @@ function assertValidEnv() {
       '[WARN] Running in production with COOKIE_SECURE=false. ' +
         'Set COOKIE_SECURE=true once the app is served over HTTPS.'
     );
+  }
+
+  // A seeded admin is a real, login-capable account on a dashboard that is
+  // often internet-facing, so a guessable seed password is treated as a
+  // hard failure rather than a warning.
+  if (env.SEED_ADMIN_PASSWORD) {
+    const commonPasswords = [
+      'admin', 'admin123', 'password', 'password123', '12345678', '123456789',
+      'qwerty123', 'changeme', 'letmein', 'adminadmin', 'root', 'secret',
+    ];
+    if (commonPasswords.includes(env.SEED_ADMIN_PASSWORD.toLowerCase())) {
+      console.error(
+        '[FATAL] SEED_ADMIN_PASSWORD adalah kata sandi yang umum/mudah ditebak. ' +
+          'Gunakan kata sandi kuat, atau kosongkan agar dibuat otomatis secara acak.'
+      );
+      process.exit(1);
+    }
+    if (env.SEED_ADMIN_PASSWORD.length < 8) {
+      console.error('[FATAL] SEED_ADMIN_PASSWORD minimal 8 karakter.');
+      process.exit(1);
+    }
   }
 }
 

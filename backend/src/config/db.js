@@ -15,6 +15,11 @@ async function connectDB() {
 
   await mongoose.connect(env.MONGO_URI, {
     serverSelectionTimeoutMS: 10000,
+    // In production, indexes are built deliberately by migration
+    // 001-create-core-indexes rather than implicitly on every boot — implicit
+    // index builds can stall startup once collections grow large. In dev,
+    // autoIndex stays on for convenience.
+    autoIndex: env.NODE_ENV !== 'production',
   });
 }
 

@@ -81,6 +81,66 @@ status.contoh.com {
 }
 ```
 
+## Migrasi Database & Seeder Admin
+
+### Migrasi
+
+Perubahan struktur/data database dikelola lewat file bernomor di `backend/src/migrations/`. Secara default migrasi **berjalan otomatis** setiap backend start (`AUTO_MIGRATE=true`) — aman karena setiap migrasi bersifat idempoten dan dilindungi lock, sehingga beberapa container yang start bersamaan tidak akan saling tabrakan.
+
+Menjalankan manual:
+
+```bash
+docker compose exec backend npm run migrate           # jalankan yang tertunda
+docker compose exec backend npm run migrate:status    # lihat status tiap migrasi
+docker compose exec backend npm run migrate:down      # rollback 1 terakhir
+docker compose exec backend npm run migrate:down -- 3 # rollback 3 terakhir
+```
+
+Membuat migrasi baru — cukup tambahkan file dengan prefix nomor urut berikutnya:
+
+```js
+// backend/src/migrations/004-nama-migrasi-anda.js
+exports.description = 'Penjelasan singkat migrasi ini';
+
+exports.up = async () => {
+  // perubahan Anda di sini (tulis idempoten agar aman diulang)
+};
+
+exports.down = async () => {
+  // cara membalikkannya (boleh dikosongkan jika tidak relevan)
+};
+```
+
+### Seeder Admin
+
+Secara default aplikasi memakai halaman **/setup** di browser untuk membuat admin pertama. Jika Anda lebih suka admin dibuat otomatis (misalnya untuk deployment otomatis), isi `SEED_ADMIN_EMAIL` di `.env`:
+
+```bash
+SEED_ADMIN_EMAIL=admin@contoh.com
+SEED_ADMIN_NAME=Administrator
+SEED_ADMIN_PASSWORD=          # kosongkan → sistem buatkan kata sandi acak
+```
+
+Jika `SEED_ADMIN_PASSWORD` dikosongkan, seeder membuat kata sandi acak yang kuat dan menampilkannya **sekali** di log:
+
+```bash
+docker compose logs backend | grep -A4 "AKUN ADMIN DIBUAT"
+```
+
+Ini sengaja dijadikan perilaku default agar **tidak ada kredensial bawaan** yang tertulis di dalam proyek — dashboard pemantauan yang terekspos internet dengan admin `admin/admin123` adalah pintu terbuka. Kata sandi umum seperti `admin123` atau `password` akan **ditolak saat startup**, bukan sekadar diberi peringatan.
+
+Menjalankan seeder manual:
+
+```bash
+docker compose exec backend npm run seed                       # buat admin dari .env
+docker compose exec backend npm run seed:force                 # reset kata sandi admin
+docker compose exec backend npm run seed -- --email a@b.com --password "RahasiaKuat123"
+```
+
+Seeder bersifat idempoten: jika akun sudah ada, akun tersebut **tidak disentuh** kecuali Anda memakai `--force`. Reset dengan `--force` juga otomatis membatalkan seluruh sesi login lama akun tersebut.
+
+> **Lupa kata sandi admin?** Gunakan `docker compose exec backend npm run seed:force` (dengan `SEED_ADMIN_EMAIL` terisi di `.env`). Kata sandi baru akan ditampilkan di log.
+
 ## Keamanan
 
 Aplikasi ini dirancang dengan asumsi akan diekspos ke internet (untuk memantau situs publik), sehingga setiap lapisan diberi perhatian khusus:
@@ -110,6 +170,9 @@ uptime-monitor/
 │       ├── middleware/    # auth, keamanan (helmet/rate-limit/sanitize), error handler
 │       ├── validators/    # Skema validasi Joi
 │       ├── services/      # Engine pemantauan, checker HTTP/TCP/Ping/SSL, notifier
+│       ├── migrations/    # Migrasi database bernomor + runner
+│       ├── seeders/       # Seeder akun admin
+│       ├── cli/           # Entry point `npm run migrate` & `npm run seed`
 │       └── routes/        # Endpoint REST API
 └── frontend/               # Dashboard React + MUI
     └── src/

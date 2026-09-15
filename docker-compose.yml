@@ -1,122 +1,79 @@
 name: uptime-monitor
 
 services:
-
-  # ================================================================
-  # MONGODB
-  # ================================================================
   mongodb:
     image: mongo:7
     restart: unless-stopped
-
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
       MONGO_INITDB_DATABASE: ${MONGO_DB_NAME}
-
     volumes:
       - mongo_data:/data/db
-
     networks:
       - internal
-
-    # MongoDB TIDAK dibuka ke host.
-    # Hanya backend yang dapat mengaksesnya.
-
+    # No `ports:` mapping — MongoDB is reachable only from the backend
+    # container over the internal network, never from the host or internet.
     healthcheck:
-      test:
-        [
-          "CMD",
-          "mongosh",
-          "--quiet",
-          "--eval",
-          "db.adminCommand('ping').ok"
-        ]
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 20s
 
-  # ================================================================
-  # BACKEND
-  # ================================================================
   backend:
-    build:
-      context: ./backend
-
+    build: ./backend
     restart: unless-stopped
-
     environment:
       NODE_ENV: production
-
       PORT: 5000
-
       MONGO_URI: mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASSWORD}@mongodb:27017/${MONGO_DB_NAME}?authSource=admin
-
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
-
       JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
       JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
-
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8097}
-
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       COOKIE_SAMESITE: ${COOKIE_SAMESITE:-lax}
-
       HEARTBEAT_RETENTION_DAYS: ${HEARTBEAT_RETENTION_DAYS:-90}
-
       TRUST_PROXY: "true"
-
+      AUTO_MIGRATE: ${AUTO_MIGRATE:-true}
+      SEED_ADMIN_NAME: ${SEED_ADMIN_NAME:-Administrator}
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
     depends_on:
       mongodb:
         condition: service_healthy
-
     networks:
       - internal
       - web
-
+    # Grants only the one capability the "ping" monitor type needs (see
+    # backend/Dockerfile for the matching setcap on the ping binary) —
+    # everything else in the container still runs as an unprivileged user.
     cap_add:
       - NET_RAW
+    # No `ports:` mapping either — only reachable from the frontend
+    # container via nginx's reverse proxy (see frontend/nginx.conf).
 
-    # Tidak ada ports:
-    # Backend hanya diakses frontend melalui jaringan Docker.
-
-  # ================================================================
-  # FRONTEND
-  # ================================================================
   frontend:
-    build:
-      context: ./frontend
-
+    build: ./frontend
     restart: unless-stopped
-
     ports:
-      - "8097:80"
-
+      - '${FRONTEND_PORT:-3000}:80'
     depends_on:
       - backend
-
     networks:
       - web
 
-
-# ================================================================
-# NETWORKS
-# ================================================================
 networks:
-
-  # MongoDB + backend saja.
-  # Tidak memiliki akses langsung dari host/internet.
+  # No gateway to the outside world — mongodb is unreachable from anywhere
+  # except a container also on this network (i.e. only `backend`).
   internal:
     internal: true
-
-  # Frontend + backend.
+  # Normal bridge network — carries frontend<->backend traffic and gives
+  # backend the outbound internet access it needs to actually check the
+  # sites/servers you configure and deliver Discord/Slack webhooks.
   web:
 
-
-# ================================================================
-# VOLUMES
-# ================================================================
 volumes:
   mongo_data:

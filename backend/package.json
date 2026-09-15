@@ -10,6 +10,12 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
+    "migrate": "node src/cli/migrate.js up",
+    "migrate:status": "node src/cli/migrate.js status",
+    "migrate:down": "node src/cli/migrate.js down",
+    "seed": "node src/cli/seed.js admin",
+    "seed:force": "node src/cli/seed.js admin --force",
+    "test": "node tests/migrations.test.js && node tests/seeder.test.js",
     "lint:check": "node -e \"console.log('ok')\""
   },
   "dependencies": {
