@@ -17,7 +17,7 @@ const userSchema = new mongoose.Schema(
     },
     // select:false → never returned by default on any query, must be
     // explicitly requested with .select('+password') during login.
-    password: { type: String, required: true, minlength: 60, select: false },
+    password: { type: String, required: true, select: false },
     role: { type: String, enum: ['admin'], default: 'admin' },
     // Bumped on password change / "log out everywhere" — any JWT issued
     // before the bump (access or refresh) is rejected even if unexpired.
