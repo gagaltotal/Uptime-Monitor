@@ -11,6 +11,7 @@ Aplikasi pemantauan server & situs web **self-hosted** — alternatif open-sourc
 - **Deteksi insiden otomatis** — setiap kali layanan down, insiden tercatat lengkap dengan durasi.
 - **Notifikasi Discord, Slack & Telegram** saat layanan down, pulih kembali, atau SSL akan kedaluwarsa.
 - **Halaman status publik** yang bisa dibuat dan dibagikan ke pengguna Anda (`/status/nama-halaman`).
+- **Pemantauan melalui Agent** — pasang agen di server Anda dan dapatkan detail CPU, memori, disk, jaringan, proses, dan uptime host secara real-time. Bisa digunakan untuk memantau host yang tidak bisa diakses dari luar (di balik NAT/firewall).
 - Dikemas penuh dengan **Docker Compose** — satu perintah untuk menjalankan semuanya.
 
 ## Teknologi
@@ -164,19 +165,20 @@ Aplikasi ini dirancang dengan asumsi akan diekspos ke internet (untuk memantau s
 uptime-monitor/
 ├── docker-compose.yml
 ├── .env.example
+├── agent/                 # Agent Monitoring
 ├── backend/               # API Node.js + Express + Socket.IO
 │   └── src/
-│       ├── models/        # Skema Mongoose (Monitor, Heartbeat, Incident, ...)
+│       ├── models/        # Skema Mongoose (Agent, Monitor, Heartbeat, Incident, ...)
 │       ├── middleware/    # auth, keamanan (helmet/rate-limit/sanitize), error handler
 │       ├── validators/    # Skema validasi Joi
-│       ├── services/      # Engine pemantauan, checker HTTP/TCP/Ping/SSL, notifier
+│       ├── services/      # Engine pemantauan, Agent, checker HTTP/TCP/Ping/SSL, notifier
 │       ├── migrations/    # Migrasi database bernomor + runner
 │       ├── seeders/       # Seeder akun admin
 │       ├── cli/           # Entry point `npm run migrate` & `npm run seed`
 │       └── routes/        # Endpoint REST API
 └── frontend/               # Dashboard React + MUI
     └── src/
-        ├── pages/          # Dashboard, Detail Monitor, Insiden, Halaman Status, dst.
+        ├── pages/          # Dashboard, Detail Monitor, Insiden, Halaman Status, Agent, dst.
         ├── components/     # Komponen UI (baris monitor, grafik, form, dsb.)
         └── context/        # Autentikasi & koneksi real-time
 ```
@@ -197,6 +199,103 @@ cd frontend
 npm install
 npm run dev                 # http://localhost:5173, proxy otomatis ke backend
 ```
+
+## Agent Monitoring
+
+Fitur ini memungkinkan Anda memantau **server host secara menyeluruh** — CPU, memori, disk, jaringan, proses, uptime, dan load average — melalui agen ringan yang berjalan di masing-masing server. Agen mengirim metrik berkala ke backend dan membuat insiden otomatis saat ambang batas dilampaui.
+
+### Membuat Agent di Dashboard
+
+1. Buka **Agent** di sidebar navigasi.
+2. Klik **Tambah Agent**, isi nama dan deskripsi opsional.
+3. Setelah disimpan, token `agt_...` akan **ditampilkan sekali** — simpan dengan aman. Token ini digunakan agen untuk autentikasi (bukan JWT).
+4. Pilih channel notifikasi yang ingin menerima alert dari agent ini (reuse notifikasi Discord/Slack/Telegram yang sudah dikonfigurasi).
+
+### Menginstal Agent Bash
+
+Salin skrip `agent/uptime-agent.sh` ke server yang akan dipantau:
+
+```bash
+# Di server target — buat direktori config
+sudo mkdir -p /etc/uptime-agent
+sudo chmod 700 /etc/uptime-agent
+
+# Salin skrip dan config example
+sudo cp agent/uptime-agent.sh /usr/local/bin/uptime-agent.sh
+sudo chmod +x /usr/local/bin/uptime-agent.sh
+
+# Salin config example dan sesuaikan
+sudo cp agent/agent.conf.example /etc/uptime-agent/agent.conf
+sudo chmod 600 /etc/uptime-agent/agent.conf
+```
+
+Edit `/etc/uptime-agent/agent.conf`:
+
+```bash
+UPTIME_SERVER_URL=https://uptime.example.com   # URL dashboard Anda
+UPTIME_AGENT_TOKEN=agt_xxxxxxxxxxxxxxxxxxxx     # token dari dashboard
+UPTIME_INTERVAL=60                              # detik antar laporan
+UPTIME_SEND_LOGS=true                           # kirim log koneksi gagal
+UPTIME_HTTP_TIMEOUT=10                           # detik
+```
+
+### Mode Jalannya
+
+| Mode | Keterangan |
+|---|---|
+| (default) | Loop terus-menerus, kirim laporan setiap `UPTIME_INTERVAL` detik |
+| `--once` | Kumpulkan dan kirim satu laporan, lalu keluar |
+| `--print` | Kumpulkan dan cetak JSON payload tanpa kirim |
+| `--selftest` | Kumpulkan metrik dan cetak ringkasan human-readable |
+
+Contoh:
+
+```bash
+/usr/local/bin/uptime-agent.sh --once
+/usr/local/bin/uptime-agent.sh --print
+/usr/local/bin/uptime-agent.sh --selftest
+```
+
+### Menjalankan sebagai systemd Service
+
+Salin unit file dan aktifkan:
+
+```bash
+sudo cp agent/uptime-agent.service /etc/systemd/system/uptime-agent.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now uptime-agent
+sudo systemctl status uptime-agent
+```
+
+Log: `journalctl -u uptime-agent -f`
+
+### Variabel Environment / Config
+
+| Variabel | Default | Keterangan |
+|---|---|---|
+| `UPTIME_SERVER_URL` | — | URL dashboard (wajib) |
+| `UPTIME_AGENT_TOKEN` | — | Token agent `agt_...` (wajib) |
+| `UPTIME_INTERVAL` | `60` | Detik antar report |
+| `UPTIME_SEND_LOGS` | `false` | Kirim log saat koneksi gagal |
+| `UPTIME_HTTP_TIMEOUT` | `10` | Detik timeout HTTP |
+
+Config precedence: environment variable → `/etc/uptime-agent/agent.conf`.
+
+### Cara Kerja & Ambang Batas
+
+- Agent mengirim metrik (`cpuPercent`, `memoryPercent`, `diskPercent`, `loadAverage`, `uptimeSeconds`, `processCount`) ke `POST /api/agents/report` dengan header `x-agent-token`.
+- Insiden dibuat otomatis saat metrik **≥ 90%** (CPU, memori, disk) atau agent **tidak melaporkan selama 180 detik** (status `disconnected`).
+- Insiden otomatis **resolve** saat metrik kembali normal atau agent melaporkan lagi.
+- Log dikirim ke `POST /api/agents/logs` (hanya jika `UPTIME_SEND_LOGS=true` dan ada ≥3 kegagalan berturut-turut).
+
+### Notifikasi & Retensi
+
+- Notifikasi **menggunakan ulang** channel Discord/Slack/Telegram yang sudah ada — tidak ada infrastruktur notifikasi baru.
+- Retensi default: metrik **30 hari**, log **14 hari** (bisa diubah di `.env`).
+
+### Cross-Distro
+
+Skrip agent mendukung **Debian/Ubuntu, RHEL/CentOS/Fedora, Alpine, Arch** — auto-detect package manager (`apt`, `yum/dnf`, `apk`, `pacman`) untuk menginstal `jq`, `bc`, `iproute2`/`ip`, `procps-ng`/`ps`, `df`, `uptime`.
 
 ## Masalah Umum
 

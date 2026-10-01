@@ -152,6 +152,51 @@ const schemas = {
       )
       .default([]),
   }),
+
+  // Admin-managed Agent records. The token itself is generated server-side
+  // (Agent.generateToken) and never accepted from the client.
+  agent: Joi.object({
+    name: Joi.string().trim().min(1).max(200).required(),
+    description: Joi.string().trim().max(500).allow('').default(''),
+    hostname: Joi.string().trim().max(255).allow('').default(''),
+    distro: Joi.string().trim().max(120).allow('').default(''),
+    distroVersion: Joi.string().trim().max(120).allow('').default(''),
+    kernel: Joi.string().trim().max(200).allow('').default(''),
+    arch: Joi.string().trim().max(40).allow('').default(''),
+    ipAddress: Joi.string().trim().max(64).allow('').default(''),
+    tags: Joi.array().items(Joi.string().trim().max(40)).max(20).default([]),
+    interval: Joi.number().integer().min(10).max(86400).default(60),
+    isActive: Joi.boolean().default(true),
+    notificationChannels: Joi.array().items(objectId).default([]),
+  }),
+
+  // Payload the bash agent POSTs on every collection cycle. Kept permissive
+  // (metrics optional) so a lightweight agent can report only what it can
+  // gather on a given distro without failing validation.
+  agentReport: Joi.object({
+    metrics: Joi.object({
+      cpuPercent: Joi.number().min(0).max(100),
+      memoryPercent: Joi.number().min(0).max(100),
+      memoryUsedMb: Joi.number().min(0),
+      memoryTotalMb: Joi.number().min(0),
+      diskPercent: Joi.number().min(0).max(100),
+      diskUsedGb: Joi.number().min(0),
+      diskTotalGb: Joi.number().min(0),
+      loadAverage: Joi.array().items(Joi.number().min(0)).max(3),
+      uptimeSeconds: Joi.number().min(0),
+      processCount: Joi.number().integer().min(0),
+    }).default({}),
+    osInfo: Joi.object().unknown(true),
+    message: Joi.string().trim().max(500).allow(''),
+  }),
+
+  // Payload the bash agent POSTs to stream an application/system log line.
+  agentLog: Joi.object({
+    level: Joi.string().valid('debug', 'info', 'warn', 'error').default('info'),
+    source: Joi.string().trim().max(120).allow(''),
+    message: Joi.string().trim().max(2000).required(),
+    loggedAt: Joi.date().iso(),
+  }),
 };
 
 // stripUnknown removes any field not declared in the schema — this is the

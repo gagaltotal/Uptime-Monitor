@@ -8,6 +8,8 @@ import Dashboard from './pages/Dashboard';
 import MonitorDetail from './pages/MonitorDetail';
 import Incidents from './pages/Incidents';
 import StatusPages from './pages/StatusPages';
+import Agents from './pages/Agents';
+import AgentDetail from './pages/AgentDetail';
 import PublicStatusPage from './pages/PublicStatusPage';
 import Settings from './pages/Settings';
 
@@ -26,6 +28,8 @@ export default function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/monitors/:id" element={<MonitorDetail />} />
             <Route path="/incidents" element={<Incidents />} />
+            <Route path="/agents" element={<Agents />} />
+            <Route path="/agents/:id" element={<AgentDetail />} />
             <Route path="/status-pages" element={<StatusPages />} />
             <Route path="/settings" element={<Settings />} />
           </Route>

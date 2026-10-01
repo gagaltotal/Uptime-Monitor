@@ -4,6 +4,10 @@ const Heartbeat = require('../models/Heartbeat');
 const Incident = require('../models/Incident');
 const StatusPage = require('../models/StatusPage');
 const NotificationChannel = require('../models/NotificationChannel');
+const Agent = require('../models/Agent');
+const AgentMetric = require('../models/AgentMetric');
+const AgentIncident = require('../models/AgentIncident');
+const AgentLog = require('../models/AgentLog');
 const logger = require('../utils/logger');
 
 exports.description = 'Membangun seluruh index yang dideklarasikan pada skema';
@@ -13,7 +17,18 @@ exports.description = 'Membangun seluruh index yang dideklarasikan pada skema';
 // migration is the explicit, controlled place where indexes get created
 // instead. syncIndexes() is idempotent: it creates what's missing and drops
 // indexes no longer declared in the schema.
-const MODELS = [User, Monitor, Heartbeat, Incident, StatusPage, NotificationChannel];
+const MODELS = [
+  User,
+  Monitor,
+  Heartbeat,
+  Incident,
+  StatusPage,
+  NotificationChannel,
+  Agent,
+  AgentMetric,
+  AgentIncident,
+  AgentLog,
+];
 
 exports.up = async () => {
   for (const Model of MODELS) {

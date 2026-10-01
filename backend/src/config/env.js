@@ -28,6 +28,15 @@ const env = {
   HEARTBEAT_RETENTION_DAYS: parseInt(process.env.HEARTBEAT_RETENTION_DAYS, 10) || 90,
   MIN_CHECK_INTERVAL_SECONDS: parseInt(process.env.MIN_CHECK_INTERVAL_SECONDS, 10) || 20,
 
+  // --- Agent monitoring ---
+  // How many days of agent metrics/logs to keep before pruning.
+  AGENT_METRIC_RETENTION_DAYS: parseInt(process.env.AGENT_METRIC_RETENTION_DAYS, 10) || 30,
+  AGENT_LOG_RETENTION_DAYS: parseInt(process.env.AGENT_LOG_RETENTION_DAYS, 10) || 14,
+  // An agent that has not reported within this window is flagged as
+  // disconnected. Defaults to 3x the recommended 60s agent interval so a
+  // single missed beat does not raise a false incident.
+  AGENT_OFFLINE_THRESHOLD_SECONDS: parseInt(process.env.AGENT_OFFLINE_THRESHOLD_SECONDS, 10) || 180,
+
   TRUST_PROXY: process.env.TRUST_PROXY === 'true',
 
   // --- Migrations & seeding ---

@@ -55,4 +55,32 @@ function emitIncident(incident) {
   io?.emit('incident:update', incident);
 }
 
-module.exports = { init, emitMonitorUpdate, emitHeartbeat, emitIncident };
+// Agent equivalents. The agent engine and the ingestion route call these so
+// the dashboard's Agent pages update live without polling — same contract as
+// the monitor emitters above, just a separate channel namespace.
+function emitAgentUpdate(agent) {
+  io?.emit('agent:update', agent);
+}
+
+function emitAgentHeartbeat(agentId, metric) {
+  io?.emit('agent:heartbeat', { agentId: agentId.toString(), metric });
+}
+
+function emitAgentIncident(incident) {
+  io?.emit('agent:incident', incident);
+}
+
+function emitAgentLog(agentId, log) {
+  io?.emit('agent:log', { agentId: agentId.toString(), log });
+}
+
+module.exports = {
+  init,
+  emitMonitorUpdate,
+  emitHeartbeat,
+  emitIncident,
+  emitAgentUpdate,
+  emitAgentHeartbeat,
+  emitAgentIncident,
+  emitAgentLog,
+};

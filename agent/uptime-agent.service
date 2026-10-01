@@ -1,0 +1,28 @@
+[Unit]
+Description=Uptime Monitor Agent
+Documentation=https://github.com/gagaltotal/Uptime-Monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Runs as an unprivileged user. Create it with:
+#   useradd --system --no-create-home --shell /usr/sbin/nologin uptime-agent
+User=uptime-agent
+Group=uptime-agent
+EnvironmentFile=/etc/uptime-agent/agent.conf
+ExecStart=/usr/local/bin/uptime-agent.sh
+Restart=always
+RestartSec=10
+# Harden the unit — the collector only needs to read /proc and make HTTP calls.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+MemoryMax=64M
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,24 @@
+# Uptime Monitor — Agent configuration
+#
+# Copy this file to /etc/uptime-agent/agent.conf and fill in the values.
+# The installer creates the file with 0600 permissions since it holds a
+# per-agent token.
+#
+# Generate the token from the dashboard: Agents -> "Add Agent" -> copy token.
+# The token is only ever shown once.
+
+# Base URL of your Uptime Monitor instance (no trailing slash needed).
+UPTIME_SERVER_URL="https://uptime.example.com"
+
+# Per-agent token, starts with "agt_".
+UPTIME_AGENT_TOKEN="agt_replace_me"
+
+# How often, in seconds, to collect and POST a report. Match this to the
+# agent's `interval` value in the dashboard.
+UPTIME_INTERVAL=60
+
+# Set to "true" to also stream connection-failure log lines to the API.
+UPTIME_SEND_LOGS="false"
+
+# Optional HTTP timeout (seconds).
+UPTIME_HTTP_TIMEOUT=15

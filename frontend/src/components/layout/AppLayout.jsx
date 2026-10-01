@@ -15,6 +15,7 @@ import {
 import MenuRoundedIcon from '@mui/icons-material/MenuRounded';
 import SpaceDashboardRoundedIcon from '@mui/icons-material/SpaceDashboardRounded';
 import ReportRoundedIcon from '@mui/icons-material/ReportRounded';
+import DnsRoundedIcon from '@mui/icons-material/DnsRounded';
 import PublicRoundedIcon from '@mui/icons-material/PublicRounded';
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
@@ -30,6 +31,7 @@ const DRAWER_WIDTH = 240;
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: SpaceDashboardRoundedIcon, end: true },
   { to: '/incidents', label: 'Insiden', icon: ReportRoundedIcon },
+  { to: '/agents', label: 'Agent', icon: DnsRoundedIcon },
   { to: '/status-pages', label: 'Halaman Status', icon: PublicRoundedIcon },
   { to: '/settings', label: 'Pengaturan', icon: SettingsRoundedIcon },
 ];
