@@ -23,7 +23,7 @@ router.post(
   validate('notificationChannel'),
   catchAsync(async (req, res) => {
     const channel = await NotificationChannel.create({ ...req.body, createdBy: req.user._id });
-    const { webhookUrl, ...safe } = channel.toObject();
+    const { webhookUrl, telegramBotToken, ...safe } = channel.toObject();
     res.status(201).json({ channel: safe });
   })
 );
@@ -56,7 +56,9 @@ router.post(
   '/:id/test',
   validateObjectIdParam(),
   catchAsync(async (req, res) => {
-    const channel = await NotificationChannel.findById(req.params.id).select('+webhookUrl');
+    const channel = await NotificationChannel.findById(req.params.id).select(
+      '+webhookUrl +telegramBotToken'
+    );
     if (!channel) throw new ApiError(404, 'Channel tidak ditemukan.');
     try {
       await sendTestNotification(channel);

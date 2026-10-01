@@ -48,7 +48,7 @@ export default function Settings() {
 }
 
 // --- Tab: Notifikasi -------------------------------------------------------
-const emptyChannel = { name: '', type: 'discord', webhookUrl: '' };
+const emptyChannel = { name: '', type: 'discord', webhookUrl: '', telegramBotToken: '', telegramChatId: '' };
 
 function NotificationsTab() {
   const { enqueueSnackbar } = useSnackbar();
@@ -109,7 +109,7 @@ function NotificationsTab() {
     <Box>
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
         <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 480 }}>
-          Hubungkan Discord atau Slack agar mendapat notifikasi saat ada layanan down atau sertifikat SSL akan kedaluwarsa.
+          Hubungkan Discord, Slack, atau Telegram agar mendapat notifikasi saat ada layanan down atau sertifikat SSL akan kedaluwarsa.
         </Typography>
         <Button
           variant="contained"
@@ -139,7 +139,7 @@ function NotificationsTab() {
               key={c._id}
               sx={{ display: 'flex', alignItems: 'center', gap: 2, px: 2.5, py: 1.75, borderBottom: '1px solid', borderColor: 'divider', '&:last-of-type': { borderBottom: 'none' } }}
             >
-              <Chip size="small" label={c.type === 'discord' ? 'Discord' : 'Slack'} />
+              <Chip size="small" label={c.type === 'discord' ? 'Discord' : c.type === 'slack' ? 'Slack' : 'Telegram'} />
               <Typography sx={{ flex: 1 }} fontWeight={600}>
                 {c.name}
               </Typography>
@@ -172,6 +172,7 @@ function NotificationsTab() {
             >
               <MenuItem value="discord">Discord</MenuItem>
               <MenuItem value="slack">Slack</MenuItem>
+              <MenuItem value="telegram">Telegram</MenuItem>
             </TextField>
             <TextField
               label="Nama Channel"
@@ -180,20 +181,49 @@ function NotificationsTab() {
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
               fullWidth
             />
-            <TextField
-              label="URL Webhook"
-              placeholder={form.type === 'discord' ? 'https://discord.com/api/webhooks/…' : 'https://hooks.slack.com/services/…'}
-              value={form.webhookUrl}
-              onChange={(e) => setForm((f) => ({ ...f, webhookUrl: e.target.value }))}
-              fullWidth
-            />
+            {form.type === 'telegram' ? (
+              <>
+                <TextField
+                  label="Bot Token"
+                  placeholder="mis. 123456789:AA..."
+                  value={form.telegramBotToken}
+                  onChange={(e) => setForm((f) => ({ ...f, telegramBotToken: e.target.value }))}
+                  helperText="Token bot dari @BotFather."
+                  fullWidth
+                />
+                <TextField
+                  label="Chat ID"
+                  placeholder="mis. -1001234567890"
+                  value={form.telegramChatId}
+                  onChange={(e) => setForm((f) => ({ ...f, telegramChatId: e.target.value }))}
+                  helperText="ID chat/grup tujuan notifikasi."
+                  fullWidth
+                />
+              </>
+            ) : (
+              <TextField
+                label="URL Webhook"
+                placeholder={form.type === 'discord' ? 'https://discord.com/api/webhooks/...' : 'https://hooks.slack.com/services/...'}
+                value={form.webhookUrl}
+                onChange={(e) => setForm((f) => ({ ...f, webhookUrl: e.target.value }))}
+                fullWidth
+              />
+            )}
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, py: 2 }}>
           <Button color="inherit" onClick={() => setDialogOpen(false)} disabled={saving}>
             Batal
           </Button>
-          <Button variant="contained" onClick={handleCreate} disabled={saving || !form.name || !form.webhookUrl}>
+          <Button
+            variant="contained"
+            onClick={handleCreate}
+            disabled={
+              saving ||
+              !form.name ||
+              (form.type === 'telegram' ? !form.telegramBotToken || !form.telegramChatId : !form.webhookUrl)
+            }
+          >
             Simpan
           </Button>
         </DialogActions>

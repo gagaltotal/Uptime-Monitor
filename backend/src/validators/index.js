@@ -94,7 +94,9 @@ const schemas = {
 
   notificationChannel: Joi.object({
     name: Joi.string().trim().min(1).max(100).required(),
-    type: Joi.string().valid('discord', 'slack').required(),
+    type: Joi.string().valid('discord', 'slack', 'telegram').required(),
+    // Discord/Slack require a webhook URL; Telegram uses a bot token + chat
+    // ID instead, so the URL must be absent for those channels.
     webhookUrl: Joi.when('type', {
       is: 'discord',
       then: Joi.string()
@@ -102,11 +104,31 @@ const schemas = {
         .pattern(/^https:\/\/(discord|discordapp)\.com\/api\/webhooks\//)
         .required()
         .messages({ 'string.pattern.base': 'URL webhook Discord tidak valid.' }),
-      otherwise: Joi.string()
-        .uri({ scheme: ['https'] })
-        .pattern(/^https:\/\/hooks\.slack\.com\/services\//)
+      otherwise: Joi.when('type', {
+        is: 'slack',
+        then: Joi.string()
+          .uri({ scheme: ['https'] })
+          .pattern(/^https:\/\/hooks\.slack\.com\/services\//)
+          .required()
+          .messages({ 'string.pattern.base': 'URL webhook Slack tidak valid.' }),
+        otherwise: Joi.forbidden(),
+      }),
+    }),
+    telegramBotToken: Joi.when('type', {
+      is: 'telegram',
+      then: Joi.string()
+        .trim()
         .required()
-        .messages({ 'string.pattern.base': 'URL webhook Slack tidak valid.' }),
+        .messages({ 'any.required': 'Bot token Telegram wajib diisi.' }),
+      otherwise: Joi.forbidden(),
+    }),
+    telegramChatId: Joi.when('type', {
+      is: 'telegram',
+      then: Joi.string()
+        .trim()
+        .required()
+        .messages({ 'any.required': 'Chat ID Telegram wajib diisi.' }),
+      otherwise: Joi.forbidden(),
     }),
     isActive: Joi.boolean().default(true),
   }),

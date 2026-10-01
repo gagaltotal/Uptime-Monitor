@@ -9,7 +9,7 @@ Aplikasi pemantauan server & situs web **self-hosted** — alternatif open-sourc
 - **Pemantauan sertifikat SSL** otomatis untuk setiap monitor HTTPS, lengkap dengan peringatan sebelum kedaluwarsa.
 - **Riwayat uptime/downtime & waktu respons**, divisualisasikan dalam grafik.
 - **Deteksi insiden otomatis** — setiap kali layanan down, insiden tercatat lengkap dengan durasi.
-- **Notifikasi Discord & Slack** saat layanan down, pulih kembali, atau SSL akan kedaluwarsa.
+- **Notifikasi Discord, Slack & Telegram** saat layanan down, pulih kembali, atau SSL akan kedaluwarsa.
 - **Halaman status publik** yang bisa dibuat dan dibagikan ke pengguna Anda (`/status/nama-halaman`).
 - Dikemas penuh dengan **Docker Compose** — satu perintah untuk menjalankan semuanya.
 
@@ -205,6 +205,8 @@ npm run dev                 # http://localhost:5173, proxy otomatis ke backend
 **Login gagal / langsung ter-logout setelah refresh halaman.** Biasanya karena `CORS_ORIGIN` di `.env` tidak sama persis dengan URL yang dipakai mengakses dashboard di browser. Perbaiki lalu `docker compose up -d --build` ulang.
 
 **Notifikasi Discord/Slack tidak terkirim.** Gunakan tombol uji coba (ikon 🧪) di **Pengaturan → Notifikasi** untuk memastikan URL webhook benar. Backend menolak URL yang tidak cocok dengan pola resmi Discord/Slack.
+
+**Notifikasi Telegram tidak terkirim.** Di **Pengaturan → Notifikasi**, pilih tipe **Telegram** lalu isi **Bot Token** (dari [@BotFather](https://t.me/BotFather)) dan **Chat ID** tujuan (ID pengguna, grup, atau channel). Pastikan bot sudah pernah menerima pesan/kirim `/start` pada chat tersebut, dan untuk grup/channel bot harus ditambahkan sebagai anggota. Gunakan tombol uji coba (ikon 🧪) untuk memverifikasi bot token dan chat ID.
 
 ## Lisensi
 

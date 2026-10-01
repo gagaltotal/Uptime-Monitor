@@ -11,7 +11,7 @@ async function getActiveChannels(monitor) {
   return NotificationChannel.find({
     _id: { $in: monitor.notificationChannels },
     isActive: true,
-  }).select('+webhookUrl');
+  }).select('+webhookUrl +telegramBotToken');
 }
 
 async function dispatch(monitor, embed, plainText) {
@@ -23,6 +23,8 @@ async function dispatch(monitor, embed, plainText) {
           await sendDiscord(channel.webhookUrl, embed);
         } else if (channel.type === 'slack') {
           await sendSlack(channel.webhookUrl, plainText);
+        } else if (channel.type === 'telegram') {
+          await sendTelegram(channel.telegramBotToken, channel.telegramChatId, plainText);
         }
       } catch (err) {
         // A failing webhook must never break the monitoring loop for
@@ -39,6 +41,14 @@ async function sendDiscord(webhookUrl, embed) {
 
 async function sendSlack(webhookUrl, text) {
   await axios.post(webhookUrl, { text }, { timeout: 8000 });
+}
+
+async function sendTelegram(botToken, chatId, text) {
+  await axios.post(
+    `https://api.telegram.org/bot${botToken}/sendMessage`,
+    { chat_id: chatId, text },
+    { timeout: 8000 }
+  );
 }
 
 function targetLabel(monitor) {
@@ -102,8 +112,14 @@ async function sendTestNotification(channel) {
   };
   if (channel.type === 'discord') {
     await sendDiscord(channel.webhookUrl, embed);
-  } else {
+  } else if (channel.type === 'slack') {
     await sendSlack(channel.webhookUrl, '✅ Notifikasi uji coba dari Uptime Monitor.');
+  } else if (channel.type === 'telegram') {
+    await sendTelegram(
+      channel.telegramBotToken,
+      channel.telegramChatId,
+      '✅ Notifikasi uji coba dari Uptime Monitor.'
+    );
   }
 }
 
