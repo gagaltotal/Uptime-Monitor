@@ -240,7 +240,7 @@ export default function MonitorFormDialog({ open, onClose, onSubmit, initialMoni
             isOptionEqualToValue={(a, b) => a._id === b._id}
             onChange={(e, val) => setForm((f) => ({ ...f, notificationChannels: val.map((c) => c._id) }))}
             renderInput={(params) => (
-              <TextField {...params} label="Notifikasi" placeholder="Pilih channel Discord/Slack" />
+              <TextField {...params} label="Notifikasi" placeholder="Pilih channel Notifikasi" />
             )}
             noOptionsText="Belum ada channel notifikasi — tambahkan dulu di menu Pengaturan"
           />
