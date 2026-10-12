@@ -71,7 +71,16 @@ function NotificationsTab() {
     setError('');
     setSaving(true);
     try {
-      const { data } = await api.post('/notification-channels', form);
+      const payload =
+        form.type === 'telegram'
+          ? {
+              name: form.name,
+              type: form.type,
+              telegramBotToken: form.telegramBotToken,
+              telegramChatId: form.telegramChatId,
+            }
+          : { name: form.name, type: form.type, webhookUrl: form.webhookUrl };
+      const { data } = await api.post('/notification-channels', payload);
       setChannels((prev) => [data.channel, ...(prev || [])]);
       setDialogOpen(false);
       setForm(emptyChannel);
