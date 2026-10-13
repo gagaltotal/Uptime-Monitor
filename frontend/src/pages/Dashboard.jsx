@@ -170,13 +170,33 @@ export default function Dashboard() {
       </Stack>
 
       {summary && summary.total > 0 && (
-        <Paper variant="outlined" sx={{ px: 3, py: 2, mb: 3 }}>
-          <Stack direction="row" spacing={4} divider={<Box sx={{ width: '1px', bgcolor: 'divider' }} />} flexWrap="wrap">
-            <StatGroup label="Total Monitor" value={summary.total} />
-            <StatGroup label="Aktif (UP)" value={summary.up} color="status.up" />
-            <StatGroup label="Bermasalah (DOWN)" value={summary.down} color={summary.down > 0 ? 'status.down' : 'text.primary'} />
-            <StatGroup label="Rata-rata Respons" value={summary.avgResponse != null ? `${summary.avgResponse} ms` : '—'} />
-          </Stack>
+        <Paper variant="outlined" sx={{ px: { xs: 2, sm: 3 }, py: 2, mb: 3 }}>
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' },
+              gap: { xs: 2, md: 0 },
+            }}
+          >
+            {[
+              { label: 'Total Monitor', value: summary.total, color: 'text.primary' },
+              { label: 'Aktif (UP)', value: summary.up, color: 'status.up' },
+              { label: 'Bermasalah (DOWN)', value: summary.down, color: summary.down > 0 ? 'status.down' : 'text.primary' },
+              { label: 'Rata-rata Respons', value: summary.avgResponse != null ? `${summary.avgResponse} ms` : '—', color: 'text.primary' },
+            ].map((item, idx) => (
+              <Box
+                key={item.label}
+                sx={{
+                  px: { xs: 0, md: 3 },
+                  borderLeft: { md: idx === 0 ? 'none' : '1px solid' },
+                  borderColor: 'divider',
+                  minWidth: 0,
+                }}
+              >
+                <StatGroup label={item.label} value={item.value} color={item.color} />
+              </Box>
+            ))}
+          </Box>
         </Paper>
       )}
 

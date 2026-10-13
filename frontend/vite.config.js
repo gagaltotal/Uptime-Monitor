@@ -17,6 +17,8 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
+    // Keep fonts as separate files so they load from 'self' (CSP font-src 'self' blocks data: URIs)
+    assetsInlineLimit: 0,
     chunkSizeWarningLimit: 600,
     rollupOptions: {
       output: {
