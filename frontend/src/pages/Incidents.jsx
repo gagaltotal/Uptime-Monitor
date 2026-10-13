@@ -1,5 +1,24 @@
 import { useEffect, useState } from 'react';
-import { Box, Button, Chip, Pagination, Paper, Stack, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
+import { createPortal } from 'react-dom';
+import {
+  Box,
+  Button,
+  Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Pagination,
+  Paper,
+  Select,
+  Stack,
+  ToggleButton,
+  ToggleButtonGroup,
+  Typography,
+} from '@mui/material';
 import ReportRoundedIcon from '@mui/icons-material/ReportRounded';
 import PrintRoundedIcon from '@mui/icons-material/PrintRounded';
 import { useNavigate } from 'react-router-dom';
@@ -21,45 +40,80 @@ function durationLabel(seconds) {
 
 const STATUS_LABEL = { all: 'Semua', ongoing: 'Berlangsung', resolved: 'Selesai' };
 
+const MONTHS = [
+  'Januari',
+  'Februari',
+  'Maret',
+  'April',
+  'Mei',
+  'Juni',
+  'Juli',
+  'Agustus',
+  'September',
+  'Oktober',
+  'November',
+  'Desember',
+];
+
+const YEAR_RANGE = 10;
+
 export default function Incidents() {
   const { enqueueSnackbar } = useSnackbar();
   const navigate = useNavigate();
+  const currentYear = new Date().getFullYear();
+  const years = Array.from({ length: YEAR_RANGE }, (_, i) => currentYear - i);
+
   const [status, setStatus] = useState('all');
   const [page, setPage] = useState(1);
   const [data, setData] = useState(null);
+
+  // state cetak
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [printYear, setPrintYear] = useState(currentYear);
+  const [printMonth, setPrintMonth] = useState(0); // 0 = semua bulan dalam tahun
   const [printing, setPrinting] = useState(false);
   const [printData, setPrintData] = useState(null);
-
-  const fetchAllForPrint = async () => {
-    const all = [];
-    let p = 1;
-    let pages = 1;
-    do {
-      const params = { page: p, limit: 100 };
-      if (status !== 'all') params.status = status;
-      const { data: res } = await api.get('/incidents', { params });
-      all.push(...res.incidents);
-      pages = res.pages;
-      p += 1;
-    } while (p <= pages);
-    return all;
-  };
+  const [printMeta, setPrintMeta] = useState(null);
+  const [printRequest, setPrintRequest] = useState(false);
 
   const handlePrint = async () => {
+    setDialogOpen(false);
     setPrinting(true);
     try {
-      const incidents = await fetchAllForPrint();
-      setPrintData(incidents);
-      // beri waktu React merender area cetak sebelum dialog print terbuka
-      setTimeout(() => {
-        window.print();
-        setPrinting(false);
-      }, 150);
+      // hanya ambil insiden pada periode yang dipilih (tanpa pagination)
+      const start = printMonth ? new Date(printYear, printMonth - 1, 1) : new Date(printYear, 0, 1);
+      const end = printMonth ? new Date(printYear, printMonth, 1) : new Date(printYear + 1, 0, 1);
+      const params = { from: start.toISOString(), to: end.toISOString() };
+      if (status !== 'all') params.status = status;
+
+      const { data: res } = await api.get('/incidents/report', { params });
+      setPrintMeta({
+        periodLabel: printMonth ? `${MONTHS[printMonth - 1]} ${printYear}` : `Tahun ${printYear}`,
+        truncated: res.truncated,
+      });
+      setPrintData(res.incidents);
+      setPrintRequest(true);
     } catch {
       setPrinting(false);
       enqueueSnackbar('Gagal menyiapkan laporan.', { variant: 'error' });
     }
   };
+
+  // cetak setelah area laporan sudah dirender
+  useEffect(() => {
+    if (!printRequest || !printData) return undefined;
+    const prevTitle = document.title;
+    const t = setTimeout(() => {
+      // judul dokumen dipakai sebagai nama file saat "Simpan sebagai PDF"
+      document.title = `Laporan-Insiden-${(printMeta?.periodLabel || '').replace(/\s+/g, '-')}`;
+      window.print();
+      document.title = prevTitle;
+      setPrinting(false);
+      setPrintRequest(false);
+      setPrintData(null);
+    }, 200);
+    return () => clearTimeout(t);
+  }, [printRequest, printData, printMeta]);
 
   const reportIncidents = printData || [];
   const ongoingCount = reportIncidents.filter((i) => i.status === 'ongoing').length;
@@ -97,7 +151,7 @@ export default function Incidents() {
         <Button
           variant="outlined"
           startIcon={<PrintRoundedIcon />}
-          onClick={handlePrint}
+          onClick={() => setDialogOpen(true)}
           disabled={printing}
           sx={{ flexShrink: 0 }}
         >
@@ -187,8 +241,57 @@ export default function Incidents() {
         </Stack>
       )}
 
-      {/* Area laporan — hanya tampil saat dicetak */}
-      {printData && (
+      {/* Dialog pilihan periode cetak */}
+      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>Cetak Laporan Insiden</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <FormControl fullWidth size="small">
+              <InputLabel id="print-year-label">Tahun</InputLabel>
+              <Select
+                labelId="print-year-label"
+                label="Tahun"
+                value={printYear}
+                onChange={(e) => setPrintYear(e.target.value)}
+              >
+                {years.map((y) => (
+                  <MenuItem key={y} value={y}>
+                    {y}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <FormControl fullWidth size="small">
+              <InputLabel id="print-month-label">Bulan</InputLabel>
+              <Select
+                labelId="print-month-label"
+                label="Bulan"
+                value={printMonth}
+                onChange={(e) => setPrintMonth(e.target.value)}
+              >
+                <MenuItem value={0}>Seluruh tahun</MenuItem>
+                {MONTHS.map((m, i) => (
+                  <MenuItem key={m} value={i + 1}>
+                    {m}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <Typography variant="caption" color="text.secondary">
+              Status mengikuti filter yang sedang aktif ({STATUS_LABEL[status]}).
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDialogOpen(false)}>Batal</Button>
+          <Button variant="contained" startIcon={<PrintRoundedIcon />} onClick={handlePrint}>
+            Cetak PDF
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Area laporan — dirender ke body, hanya tampil saat dicetak */}
+      {printData && createPortal(
         <Box className="print-report">
           <Box className="print-header">
             <Typography component="h1" sx={{ fontSize: '20pt', fontWeight: 700, color: '#111' }}>
@@ -204,6 +307,10 @@ export default function Incidents() {
                 <td>{new Date().toLocaleString('id-ID')}</td>
               </tr>
               <tr>
+                <td>Periode</td>
+                <td>{printMeta?.periodLabel}</td>
+              </tr>
+              <tr>
                 <td>Filter status</td>
                 <td>{STATUS_LABEL[status]}</td>
               </tr>
@@ -216,6 +323,12 @@ export default function Incidents() {
                 <td>
                   {ongoingCount} / {resolvedCount}
                 </td>
+          {printMeta?.truncated && (
+            <Typography sx={{ fontSize: '9pt', color: '#b00020', mb: 1 }}>
+              Data dibatasi. Persempit periode untuk melihat seluruh insiden.
+            </Typography>
+          )}
+
               </tr>
             </tbody>
           </table>
@@ -260,20 +373,18 @@ export default function Incidents() {
               © {reportYear} Uptime Monitor Contributors. Dokumen ini dibuat otomatis oleh sistem.
             </Typography>
           </Box>
-        </Box>
+        </Box>,
+        document.body
       )}
 
       <style>{`
         .print-report { display: none; }
         @media print {
           @page { size: A4; margin: 15mm; }
-          body * { visibility: hidden; }
-          .print-report, .print-report * { visibility: visible; }
+          body > *:not(.print-report) { display: none !important; }
           .print-report {
-            display: block;
-            position: absolute;
-            left: 0;
-            top: 0;
+            display: block !important;
+            position: static;
             width: 100%;
             color: #111;
             font-family: Arial, Helvetica, sans-serif;
