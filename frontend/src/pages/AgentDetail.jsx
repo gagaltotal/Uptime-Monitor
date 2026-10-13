@@ -169,6 +169,7 @@ function IncidentRow({ incident }) {
     memory: 'Memori Tinggi',
     disk: 'Disk Penuh',
     load: 'Load Tinggi',
+    service: 'Service Gagal',
     reported: 'Dilaporkan Agent',
   }[incident.type] || incident.type;
 
@@ -447,6 +448,75 @@ export default function AgentDetail() {
         <StatCard label="Rata-rata Memori" value={formatPercent(stats.avg?.memoryPercent)} />
         <StatCard label="Rata-rata Disk" value={formatPercent(stats.avg?.diskPercent)} />
       </Stack>
+
+      <Typography variant="h6" sx={{ mb: 1.5 }}>
+        Status Service
+      </Typography>
+      <Paper variant="outlined" sx={{ mb: 3 }}>
+        {!agent.currentServices || agent.currentServices.source === 'none' || !agent.currentServices.checkedAt ? (
+          <Box sx={{ textAlign: 'center', py: 4 }}>
+            <Typography color="text.secondary">
+              Belum ada data service. Pastikan agent berjalan di host dengan systemd atau OpenRC.
+            </Typography>
+          </Box>
+        ) : agent.currentServices.failed.length === 0 ? (
+          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ px: 2.5, py: 2 }}>
+            <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'status.up' }} />
+            <Typography variant="body2">
+              Semua service berjalan normal ({agent.currentServices.source}).
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
+              Dicek {new Date(agent.currentServices.checkedAt).toLocaleString('id-ID')}
+            </Typography>
+          </Stack>
+        ) : (
+          <>
+            <Stack
+              direction="row"
+              spacing={1.5}
+              alignItems="center"
+              sx={{ px: 2.5, py: 1.5, borderBottom: (t) => `1px solid ${t.palette.surface.line}` }}
+            >
+              <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'status.down' }} />
+              <Typography variant="body2" fontWeight={600}>
+                {agent.currentServices.failed.length} service gagal ({agent.currentServices.source})
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
+                Dicek {new Date(agent.currentServices.checkedAt).toLocaleString('id-ID')}
+              </Typography>
+            </Stack>
+            {agent.currentServices.failed.map((svc) => (
+              <Stack
+                key={svc.name}
+                direction={{ xs: 'column', sm: 'row' }}
+                spacing={1}
+                alignItems={{ xs: 'flex-start', sm: 'center' }}
+                sx={{ px: 2.5, py: 1.25, borderBottom: (t) => `1px solid ${t.palette.surface.line}`, '&:last-of-type': { borderBottom: 'none' } }}
+              >
+                <Typography
+                  variant="body2"
+                  fontWeight={600}
+                  sx={{ fontFamily: (t) => t.typography.fontFamilyMono, wordBreak: 'break-all' }}
+                >
+                  {svc.name}
+                </Typography>
+                <Chip
+                  size="small"
+                  label={svc.state || 'failed'}
+                  color="error"
+                  variant="outlined"
+                  sx={{ fontFamily: (t) => t.typography.fontFamilyMono, fontSize: '0.65rem' }}
+                />
+                {svc.description && (
+                  <Typography variant="caption" color="text.secondary">
+                    {svc.description}
+                  </Typography>
+                )}
+              </Stack>
+            ))}
+          </>
+        )}
+      </Paper>
 
       <Stack
         direction="row"

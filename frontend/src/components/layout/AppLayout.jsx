@@ -25,6 +25,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { SocketProvider, useSocket } from '../../hooks/useSocket';
 import { useColorMode } from '../../main.jsx';
+import AppFooter from './AppFooter';
 
 const DRAWER_WIDTH = 240;
 
@@ -196,6 +197,7 @@ export default function AppLayout() {
           <Box sx={{ flex: 1, p: { xs: 2, sm: 3, md: 4 }, maxWidth: 1400, width: '100%', mx: 'auto' }}>
             <Outlet />
           </Box>
+          <AppFooter />
         </Box>
       </Box>
     </SocketProvider>

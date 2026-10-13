@@ -111,6 +111,16 @@ async function handleReport(agent, payload = {}) {
     processCount: metrics.processCount,
   };
 
+  const services = payload.services || {};
+  const failedServices = Array.isArray(services.failed) ? services.failed : [];
+  if (services.source && services.source !== 'none') {
+    agent.currentServices = {
+      source: services.source,
+      checkedAt: new Date(),
+      failed: failedServices,
+    };
+  }
+
   const wasDisconnected = agent.currentStatus !== 'online';
   agent.currentStatus = 'online';
   agent.consecutiveMissed = 0;
@@ -143,8 +153,46 @@ async function handleReport(agent, payload = {}) {
   }
 
   await evaluateThresholds(agent, metrics);
+  if (services.source && services.source !== 'none') {
+    await evaluateServices(agent, failedServices);
+  }
 
   return metric;
+}
+
+// Raises one "service" incident listing every failed unit. The incident is
+// updated while the set of failures changes and resolved once all services
+// are healthy again.
+async function evaluateServices(agent, failedServices) {
+  const ongoing = await AgentIncident.findOne({ agent: agent._id, type: 'service', status: 'ongoing' });
+
+  if (failedServices.length === 0) {
+    if (ongoing) await resolveIncident(agent, 'service');
+    return;
+  }
+
+  const names = failedServices.map((s) => `${s.name}${s.state ? ` (${s.state})` : ''}`).join(', ');
+  const cause = `Service gagal (${failedServices.length}): ${names}`.slice(0, 500);
+
+  if (!ongoing) {
+    const incident = await AgentIncident.create({
+      agent: agent._id,
+      status: 'ongoing',
+      type: 'service',
+      severity: 'critical',
+      cause,
+      startedAt: new Date(),
+      notifiedDown: true,
+    });
+    socket.emitAgentIncident(incident);
+    notifier
+      .notifyDown(notifierTarget(agent), incident)
+      .catch((e) => logger.warn('notifyDown (agent service) failed', e.message));
+  } else if (ongoing.cause !== cause) {
+    ongoing.cause = cause;
+    await ongoing.save();
+    socket.emitAgentIncident(ongoing);
+  }
 }
 
 async function resolveIncident(agent, type) {

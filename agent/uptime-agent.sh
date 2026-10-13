@@ -257,6 +257,78 @@ collect_process_count() {
 }
 
 # ---------------------------------------------------------------------------
+# Services — list services that are currently in a failed state.
+# The init system is auto-detected so the same agent works on many distros:
+#   systemd -> Debian/Ubuntu, RHEL/Fedora/CentOS/Rocky/Alma, Arch, openSUSE
+#   openrc  -> Alpine, Gentoo, Devuan
+#   none    -> runit, SysV, ... (no failed-state information available)
+# ---------------------------------------------------------------------------
+SERVICE_SOURCE="none"
+SERVICES_FAILED=""          # newline separated: "name|state|description"
+SERVICES_FAILED_COUNT="0"
+
+detect_init() {
+  if [ -d /run/systemd/system ] && have systemctl; then
+    printf 'systemd'
+  elif have rc-status; then
+    printf 'openrc'
+  else
+    printf 'none'
+  fi
+}
+
+# systemd prints: UNIT LOAD ACTIVE SUB DESCRIPTION (a leading bullet may appear)
+collect_failed_systemd() {
+  systemctl list-units --all --state=failed --no-legend --plain --no-pager 2>/dev/null |
+    awk '{
+      i = 1
+      if ($1 == "●" || $1 == "*") i = 2
+      if (NF - i < 3) next
+      name = $i
+      state = $(i + 3)
+      desc = ""
+      for (j = i + 4; j <= NF; j++) desc = desc (j > i + 4 ? " " : "") $j
+      printf "%s|%s|%s\n", name, state, desc
+    }'
+}
+
+# OpenRC prints lines such as: " sshd   [ crashed ]"
+collect_failed_openrc() {
+  rc-status --crashed 2>/dev/null |
+    sed 's/\x1b\[[0-9;]*m//g' |
+    awk '/\[ *crashed *\]/ { printf "%s|crashed|Service OpenRC crashed\n", $1 }'
+}
+
+collect_services() {
+  SERVICE_SOURCE="$(detect_init)"
+  case "$SERVICE_SOURCE" in
+    systemd) SERVICES_FAILED="$(collect_failed_systemd | head -n 200)" ;;
+    openrc)  SERVICES_FAILED="$(collect_failed_openrc | head -n 200)" ;;
+    *)       SERVICES_FAILED="" ;;
+  esac
+  SERVICES_FAILED_COUNT="$(printf '%s\n' "$SERVICES_FAILED" | awk 'NF' | wc -l | tr -d ' ')"
+  SERVICES_FAILED_COUNT="$(num_or_zero "$SERVICES_FAILED_COUNT")"
+}
+
+# Builds {"source":"...","failed":[{"name":"...","state":"...","description":"..."}]}
+build_services_json() {
+  local name state desc first=1
+  printf '{"source":"%s","failed":[' "$(json_escape "$SERVICE_SOURCE")"
+  while IFS='|' read -r name state desc; do
+    [ -z "$name" ] && continue
+    if [ "$first" -eq 0 ]; then printf ','; fi
+    first=0
+    printf '{"name":"%s","state":"%s","description":"%s"}' \
+      "$(json_escape "$name")" \
+      "$(json_escape "$state")" \
+      "$(json_escape "$(trim "${desc:-}")")"
+  done <<EOF
+$SERVICES_FAILED
+EOF
+  printf ']}'
+}
+
+# ---------------------------------------------------------------------------
 # Aggregate everything into the payload
 # ---------------------------------------------------------------------------
 collect_all() {
@@ -267,6 +339,7 @@ collect_all() {
   collect_load
   collect_uptime
   collect_process_count
+  collect_services
 }
 
 build_os_json() {
@@ -280,7 +353,7 @@ build_os_json() {
 }
 
 build_report_json() {
-  printf '{"metrics":{"cpuPercent":%s,"memoryPercent":%s,"memoryUsedMb":%s,"memoryTotalMb":%s,"diskPercent":%s,"diskUsedGb":%s,"diskTotalGb":%s,"loadAverage":[%s,%s,%s],"uptimeSeconds":%s,"processCount":%s},"osInfo":%s,"message":"%s"}' \
+  printf '{"metrics":{"cpuPercent":%s,"memoryPercent":%s,"memoryUsedMb":%s,"memoryTotalMb":%s,"diskPercent":%s,"diskUsedGb":%s,"diskTotalGb":%s,"loadAverage":[%s,%s,%s],"uptimeSeconds":%s,"processCount":%s},"osInfo":%s,"services":%s,"message":"%s"}' \
     "$(num_or_zero "$CPU_PERCENT")" \
     "$(num_or_zero "$MEM_PERCENT")" \
     "$(num_or_zero "$MEM_USED_MB")" \
@@ -294,6 +367,7 @@ build_report_json() {
     "$(num_or_zero "$UPTIME_SECONDS")" \
     "$(num_or_zero "$PROCESS_COUNT")" \
     "$(build_os_json)" \
+    "$(build_services_json)" \
     "$(json_escape "${UPTIME_MESSAGE:-}")"
 }
 
@@ -379,11 +453,15 @@ ${SCRIPT_NAME} self-test
   disk ........... ${DISK_PERCENT}%  (${DISK_USED_GB}/${DISK_TOTAL_GB} GB)
   load (1/5/15) .. ${LOAD_1} ${LOAD_5} ${LOAD_15}
   uptime ......... ${UPTIME_SECONDS}s
-  processes ...... ${PROCESS_COUNT}
+  services ....... ${SERVICE_SOURCE} (${SERVICES_FAILED_COUNT} gagal)
   server url ..... ${UPTIME_SERVER_URL:-<unset>}
   token .......... ${UPTIME_AGENT_TOKEN:+set}${UPTIME_AGENT_TOKEN:-<unset>}
   interval ....... ${UPTIME_INTERVAL}s
 EOF
+  if [ "$SERVICES_FAILED_COUNT" -gt 0 ]; then
+    printf 'Service yang gagal:\n' >&2
+    printf '%s\n' "$SERVICES_FAILED" | awk -F'|' 'NF { printf "  - %s (%s)\n", $1, $2 }' >&2
+  fi
 }
 
 run_loop() {

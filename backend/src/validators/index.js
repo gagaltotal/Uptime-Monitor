@@ -187,6 +187,20 @@ const schemas = {
       processCount: Joi.number().integer().min(0),
     }).default({}),
     osInfo: Joi.object().unknown(true),
+    // Daftar service yang berstatus gagal di host (systemd / OpenRC).
+    services: Joi.object({
+      source: Joi.string().valid('systemd', 'openrc', 'none').default('none'),
+      failed: Joi.array()
+        .items(
+          Joi.object({
+            name: Joi.string().trim().max(200).required(),
+            state: Joi.string().trim().max(40).allow('').default(''),
+            description: Joi.string().trim().max(300).allow('').default(''),
+          })
+        )
+        .max(200)
+        .default([]),
+    }),
     message: Joi.string().trim().max(500).allow(''),
   }),
 

@@ -12,6 +12,10 @@ Aplikasi pemantauan server & situs web **self-hosted** — alternatif open-sourc
 - **Notifikasi Discord, Slack & Telegram** saat layanan down, pulih kembali, atau SSL akan kedaluwarsa.
 - **Halaman status publik** yang bisa dibuat dan dibagikan ke pengguna Anda (`/status/nama-halaman`).
 - **Pemantauan melalui Agent** — pasang agen di server Anda dan dapatkan detail CPU, memori, disk, jaringan, proses, dan uptime host secara real-time. Bisa digunakan untuk memantau host yang tidak bisa diakses dari luar (di balik NAT/firewall).
+- **Pemantauan service Linux** — agent mendeteksi service systemd/OpenRC yang gagal (`failed`/`crashed`) dan menampilkan namanya di halaman detail agent, serta membuat insiden otomatis.
+- **Panduan instalasi Agent di dashboard** — langkah instalasi lengkap dan tombol unduh file agent langsung dari menu Agent.
+- **Cetak laporan insiden PDF** — laporan insiden yang rapi (format A4) dapat dicetak atau disimpan sebagai PDF dari menu Insiden.
+- **Footer dinamis** — hak cipta dan rentang tahun diperbarui otomatis, dan tampilannya responsif di perangkat mobile.
 - Dikemas penuh dengan **Docker Compose** — satu perintah untuk menjalankan semuanya.
 
 ## Teknologi
@@ -213,21 +217,23 @@ Fitur ini memungkinkan Anda memantau **server host secara menyeluruh** — CPU, 
 
 ### Menginstal Agent Bash
 
+Panduan lengkap juga tersedia di dashboard: buka menu **Agent** lalu klik **Panduan Instalasi Agent**. Dari sana Anda dapat mengunduh file `uptime-agent.sh`, `agent.conf.example`, dan `uptime-agent.service` langsung dari folder `agent/` di repository GitHub.
+
 Salin skrip `agent/uptime-agent.sh` ke server yang akan dipantau:
 
 ```bash
-# Di server target — buat direktori config
-sudo mkdir -p /etc/uptime-agent
-sudo chmod 700 /etc/uptime-agent
+# Di server target — buat user khusus & direktori config
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin uptime-agent 2>/dev/null || true
+sudo install -d -m 750 -o root -g uptime-agent /etc/uptime-agent
 
 # Salin skrip dan config example
-sudo cp agent/uptime-agent.sh /usr/local/bin/uptime-agent.sh
-sudo chmod +x /usr/local/bin/uptime-agent.sh
+sudo install -m 755 agent/uptime-agent.sh /usr/local/bin/uptime-agent.sh
 
 # Salin config example dan sesuaikan
-sudo cp agent/agent.conf.example /etc/uptime-agent/agent.conf
-sudo chmod 600 /etc/uptime-agent/agent.conf
+sudo install -m 640 -o root -g uptime-agent agent/agent.conf.example /etc/uptime-agent/agent.conf
 ```
+
+> Pada distro tanpa systemd (Alpine, Gentoo, Devuan dengan OpenRC), jalankan skrip sebagai service OpenRC Anda sendiri atau gunakan `nohup`/`crontab @reboot`.
 
 Edit `/etc/uptime-agent/agent.conf`:
 
@@ -286,10 +292,22 @@ Config precedence: environment variable → `/etc/uptime-agent/agent.conf`.
 - Agent mengirim metrik (`cpuPercent`, `memoryPercent`, `diskPercent`, `loadAverage`, `uptimeSeconds`, `processCount`) ke `POST /api/agents/report` dengan header `x-agent-token`.
 - Insiden dibuat otomatis saat metrik **≥ 90%** (CPU, memori, disk) atau agent **tidak melaporkan selama 180 detik** (status `disconnected`).
 - Insiden otomatis **resolve** saat metrik kembali normal atau agent melaporkan lagi.
+- **Monitoring service** (`services` pada payload): agent memeriksa service yang gagal menggunakan `systemctl list-units --state=failed` (systemd) atau `rc-status --crashed` (OpenRC). Daftar nama, status, dan deskripsi disimpan di `currentServices` agent dan ditampilkan di halaman detail agent (bagian **Status Service**).
+- Insiden bertipe `service` (**Service Gagal**) dibuat saat ada service yang gagal dan memuat daftar service tersebut. Insiden otomatis resolve saat tidak ada lagi service yang gagal. Notifikasi dikirim ke channel yang terpasang pada agent.
+
+### Laporan Insiden PDF
+
+Di menu **Insiden**, klik **Cetak Laporan PDF**. Laporan memuat ringkasan (total, berlangsung, selesai), filter status yang aktif, dan tabel seluruh insiden dengan monitor, target, waktu mulai/selesai, dan durasi. Gunakan tujuan cetak **Simpan sebagai PDF** pada dialog cetak browser.
 - Log dikirim ke `POST /api/agents/logs` (hanya jika `UPTIME_SEND_LOGS=true` dan ada ≥3 kegagalan berturut-turut).
 
 ### Notifikasi & Retensi
 
+
+Deteksi service gagal bekerja di semua distro yang menggunakan **systemd** (Debian, Ubuntu, RHEL, Fedora, Arch, openSUSE, dll.) dan **OpenRC** (Alpine, Gentoo, Devuan). Pada host tanpa keduanya, fitur service dilewati dan ditandai `source: none`.
+
+### Footer Dinamis
+
+Footer aplikasi menampilkan hak cipta dengan tahun berjalan secara otomatis (contoh: `© 2026–2027`). Tampilan footer menyesuaikan lebar layar (responsif).
 - Notifikasi **menggunakan ulang** channel Discord/Slack/Telegram yang sudah ada — tidak ada infrastruktur notifikasi baru.
 - Retensi default: metrik **30 hari**, log **14 hari** (bisa diubah di `.env`).
 

@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Alert,
   Autocomplete,
   Box,
@@ -35,6 +38,9 @@ import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded';
 import VpnKeyRoundedIcon from '@mui/icons-material/VpnKeyRounded';
 import DnsRoundedIcon from '@mui/icons-material/DnsRounded';
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
+import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
+import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
+import TerminalRoundedIcon from '@mui/icons-material/TerminalRounded';
 import { useNavigate } from 'react-router-dom';
 import { useSnackbar } from 'notistack';
 import api from '../api/axios';
@@ -428,6 +434,192 @@ export function TokenDialog({ open, token, onClose }) {
   );
 }
 
+const AGENT_RAW_BASE =
+  'https://raw.githubusercontent.com/gagaltotal/Uptime-Monitor/refs/heads/main/agent';
+
+const AGENT_FILES = [
+  {
+    file: 'uptime-agent.sh',
+    label: 'Skrip agent',
+    desc: 'Pengumpul metrik & pelapor service gagal (bash, semua distro Linux).',
+  },
+  {
+    file: 'agent.conf.example',
+    label: 'Contoh konfigurasi',
+    desc: 'Template /etc/uptime-agent/agent.conf.',
+  },
+  {
+    file: 'uptime-agent.service',
+    label: 'Unit systemd',
+    desc: 'Untuk menjalankan agent sebagai service (systemd).',
+  },
+];
+
+const INSTALL_STEPS = [
+  {
+    title: 'Buat agent di dashboard',
+    body: 'Klik "Tambah Agent", isi nama, lalu salin token agt_... yang muncul. Token hanya ditampilkan sekali.',
+  },
+  {
+    title: 'Unduh file agent',
+    body: 'Unduh skrip dan contoh konfigurasi dari tombol di bawah ini (diambil langsung dari repository GitHub).',
+  },
+  {
+    title: 'Pasang skrip di server target',
+    body: 'Jalankan perintah instalasi (lihat contoh di bawah) sebagai root atau dengan sudo di server yang ingin dipantau.',
+  },
+  {
+    title: 'Isi konfigurasi',
+    body: 'Edit /etc/uptime-agent/agent.conf: isi UPTIME_SERVER_URL (URL dashboard) dan UPTIME_AGENT_TOKEN (token dari langkah 1).',
+  },
+  {
+    title: 'Jalankan & verifikasi',
+    body: 'Aktifkan service dengan systemd atau OpenRC, lalu cek di halaman detail agent apakah status sudah Online.',
+  },
+];
+
+const SYSTEMD_INSTALL = `# 1. Buat user khusus & direktori konfigurasi
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin uptime-agent 2>/dev/null || true
+sudo install -d -m 750 -o root -g uptime-agent /etc/uptime-agent
+
+# 2. Pasang skrip & unit service
+sudo install -m 755 uptime-agent.sh /usr/local/bin/uptime-agent.sh
+sudo install -m 644 uptime-agent.service /etc/systemd/system/uptime-agent.service
+sudo install -m 640 -o root -g uptime-agent agent.conf.example /etc/uptime-agent/agent.conf
+
+# 3. Edit konfigurasi (URL & token), lalu aktifkan
+sudo nano /etc/uptime-agent/agent.conf
+sudo systemctl daemon-reload
+sudo systemctl enable --now uptime-agent
+sudo systemctl status uptime-agent`;
+
+const OPENRC_INSTALL = `# Alpine / Gentoo / Devuan (OpenRC)
+sudo install -m 755 uptime-agent.sh /usr/local/bin/uptime-agent.sh
+sudo install -d -m 750 -o root -g root /etc/uptime-agent
+sudo install -m 600 -o root -g root agent.conf.example /etc/uptime-agent/agent.conf
+sudo nano /etc/uptime-agent/agent.conf
+# Jalankan skrip di background sebagai service sederhana:
+sudo sh -c 'nohup /usr/local/bin/uptime-agent.sh >/var/log/uptime-agent.log 2>&1 &'`;
+
+function CodeBlock({ code }) {
+  const { enqueueSnackbar } = useSnackbar();
+  const copy = () => {
+    navigator.clipboard?.writeText(code).then(
+      () => enqueueSnackbar('Perintah disalin.', { variant: 'success' }),
+      () => enqueueSnackbar('Gagal menyalin perintah.', { variant: 'error' })
+    );
+  };
+  return (
+    <Box sx={{ position: 'relative' }}>
+      <Box
+        component="pre"
+        sx={{
+          m: 0,
+          p: 2,
+          pr: 6,
+          borderRadius: 2,
+          bgcolor: 'action.hover',
+          fontFamily: (t) => t.typography.fontFamilyMono,
+          fontSize: '0.78rem',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-all',
+          overflowX: 'auto',
+        }}
+      >
+        {code}
+      </Box>
+      <Tooltip title="Salin">
+        <IconButton size="small" onClick={copy} sx={{ position: 'absolute', top: 8, right: 8 }}>
+          <ContentCopyRoundedIcon fontSize="small" />
+        </IconButton>
+      </Tooltip>
+    </Box>
+  );
+}
+
+export function AgentInstallGuide() {
+  return (
+    <Accordion disableGutters variant="outlined" sx={{ mb: 3, borderRadius: 2, '&:before': { display: 'none' } }}>
+      <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}>
+        <Stack direction="row" spacing={1.25} alignItems="center">
+          <TerminalRoundedIcon fontSize="small" color="primary" />
+          <Typography fontWeight={600}>Panduan Instalasi Agent</Typography>
+        </Stack>
+      </AccordionSummary>
+      <AccordionDetails>
+        <Stack spacing={3}>
+          <Box>
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>
+              Langkah-langkah
+            </Typography>
+            <Stack component="ol" spacing={1.25} sx={{ pl: 2.5, m: 0 }}>
+              {INSTALL_STEPS.map((step) => (
+                <Box component="li" key={step.title}>
+                  <Typography variant="body2" fontWeight={600}>
+                    {step.title}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {step.body}
+                  </Typography>
+                </Box>
+              ))}
+            </Stack>
+          </Box>
+
+          <Box>
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>
+              Unduh file agent
+            </Typography>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} useFlexGap flexWrap="wrap">
+              {AGENT_FILES.map((f) => (
+                <Button
+                  key={f.file}
+                  component="a"
+                  href={`${AGENT_RAW_BASE}/${f.file}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  variant="outlined"
+                  startIcon={<DownloadRoundedIcon />}
+                  sx={{ justifyContent: 'flex-start', textAlign: 'left', flex: '1 1 200px' }}
+                >
+                  <Box>
+                    <Typography variant="body2" fontWeight={600} component="span" display="block">
+                      {f.label}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" component="span" display="block">
+                      {f.file} — {f.desc}
+                    </Typography>
+                  </Box>
+                </Button>
+              ))}
+            </Stack>
+          </Box>
+
+          <Box>
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>
+              Instalasi dengan systemd (Debian, Ubuntu, RHEL, Fedora, Arch, openSUSE, dll.)
+            </Typography>
+            <CodeBlock code={SYSTEMD_INSTALL} />
+          </Box>
+
+          <Box>
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>
+              Instalasi tanpa systemd (Alpine, Gentoo, Devuan — OpenRC)
+            </Typography>
+            <CodeBlock code={OPENRC_INSTALL} />
+          </Box>
+
+          <Alert severity="info">
+            Jalankan <code>uptime-agent.sh --selftest</code> untuk memastikan metrik dan daftar service
+            gagal terbaca sebelum agent dijalankan sebagai service. Agent wajib memiliki akses baca ke
+            <code> /proc</code> dan perintah <code>curl</code>.
+          </Alert>
+        </Stack>
+      </AccordionDetails>
+    </Accordion>
+  );
+}
+
 export default function Agents() {
   const { enqueueSnackbar } = useSnackbar();
   const [agents, setAgents] = useState(null);
@@ -608,6 +800,8 @@ export default function Agents() {
           </Typography>
         </Box>
       </Stack>
+
+      <AgentInstallGuide />
 
       <TextField
         value={search}

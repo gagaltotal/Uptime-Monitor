@@ -52,6 +52,25 @@ const agentSchema = new mongoose.Schema(
 
     os_info: { type: mongoose.Schema.Types.Mixed },
 
+    // Snapshot status service dari laporan terakhir (hanya service yang gagal).
+    currentServices: {
+      source: { type: String, enum: ['systemd', 'openrc', 'none'], default: 'none' },
+      checkedAt: { type: Date },
+      failed: {
+        type: [
+          new mongoose.Schema(
+            {
+              name: { type: String, maxlength: 200 },
+              state: { type: String, maxlength: 40 },
+              description: { type: String, maxlength: 300 },
+            },
+            { _id: false }
+          ),
+        ],
+        default: [],
+      },
+    },
+
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   },
   { timestamps: true }

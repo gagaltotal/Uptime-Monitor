@@ -6,7 +6,7 @@ const agentIncidentSchema = new mongoose.Schema(
     status: { type: String, enum: ['ongoing', 'resolved'], default: 'ongoing', index: true },
     type: {
       type: String,
-      enum: ['disconnect', 'cpu', 'memory', 'disk', 'load', 'reported'],
+      enum: ['disconnect', 'cpu', 'memory', 'disk', 'load', 'service', 'reported'],
       default: 'disconnect',
     },
     severity: { type: String, enum: ['warning', 'critical'], default: 'critical' },
