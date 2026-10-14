@@ -94,6 +94,39 @@ function targetLabel(agent) {
   return agent.hostname || agent.ipAddress || agent.distro || '—';
 }
 
+// Clipboard API hanya tersedia di konteks aman (HTTPS / localhost).
+// Jika tidak tersedia (mis. akses via HTTP), gunakan fallback execCommand.
+async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // lanjut ke fallback
+    }
+  }
+  const container = document.activeElement?.closest('[role="dialog"]') || document.body;
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.top = '0';
+  ta.style.left = '0';
+  ta.style.opacity = '0';
+  container.appendChild(ta);
+  ta.focus();
+  ta.select();
+  ta.setSelectionRange(0, text.length);
+  let ok = false;
+  try {
+    ok = document.execCommand('copy');
+  } catch {
+    ok = false;
+  }
+  container.removeChild(ta);
+  return ok;
+}
+
 function AgentRow({ agent, onEdit, onDelete, onToggle, onRegenerateToken }) {
   const navigate = useNavigate();
   const [anchorEl, setAnchorEl] = useState(null);
@@ -391,10 +424,11 @@ export function AgentFormDialog({ open, initialAgent, onClose, onSubmit }) {
 
 export function TokenDialog({ open, token, onClose }) {
   const { enqueueSnackbar } = useSnackbar();
-  const copy = () => {
-    navigator.clipboard?.writeText(token).then(
-      () => enqueueSnackbar('Token disalin ke clipboard.', { variant: 'success' }),
-      () => enqueueSnackbar('Gagal menyalin token.', { variant: 'error' })
+  const copy = async () => {
+    const ok = await copyText(token || '');
+    enqueueSnackbar(
+      ok ? 'Token disalin ke clipboard.' : 'Gagal menyalin token. Salin secara manual.',
+      { variant: ok ? 'success' : 'error' }
     );
   };
   return (
@@ -503,11 +537,11 @@ sudo sh -c 'nohup /usr/local/bin/uptime-agent.sh >/var/log/uptime-agent.log 2>&1
 
 function CodeBlock({ code }) {
   const { enqueueSnackbar } = useSnackbar();
-  const copy = () => {
-    navigator.clipboard?.writeText(code).then(
-      () => enqueueSnackbar('Perintah disalin.', { variant: 'success' }),
-      () => enqueueSnackbar('Gagal menyalin perintah.', { variant: 'error' })
-    );
+  const copy = async () => {
+    const ok = await copyText(code);
+    enqueueSnackbar(ok ? 'Perintah disalin.' : 'Gagal menyalin perintah.', {
+      variant: ok ? 'success' : 'error',
+    });
   };
   return (
     <Box sx={{ position: 'relative' }}>
