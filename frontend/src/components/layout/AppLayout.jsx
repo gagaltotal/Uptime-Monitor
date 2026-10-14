@@ -117,7 +117,7 @@ function UserMenu() {
   );
 }
 
-function SidebarContent() {
+function SidebarContent({ onNavigate }) {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <Brand />
@@ -128,6 +128,7 @@ function SidebarContent() {
             component={NavLink}
             to={to}
             end={end}
+            onClick={onNavigate}
             sx={{
               display: 'flex',
               alignItems: 'center',
@@ -182,7 +183,7 @@ export default function AppLayout() {
           ModalProps={{ keepMounted: true }}
           sx={{ display: { xs: 'block', md: 'none' }, '& .MuiDrawer-paper': { width: DRAWER_WIDTH } }}
         >
-          <SidebarContent />
+          <SidebarContent onNavigate={() => setMobileOpen(false)} />
         </Drawer>
 
         <Box component="main" sx={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>

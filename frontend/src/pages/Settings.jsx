@@ -116,18 +116,26 @@ function NotificationsTab() {
 
   return (
     <Box>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-        <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 480 }}>
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        justifyContent="space-between"
+        alignItems={{ xs: 'stretch', sm: 'center' }}
+        spacing={2}
+        sx={{ mb: 2 }}
+      >
+        <Typography variant="body2" color="text.secondary" sx={{ maxWidth: { xs: '100%', sm: 480 } }}>
           Hubungkan Discord, Slack, atau Telegram agar mendapat notifikasi saat ada layanan down atau sertifikat SSL akan kedaluwarsa.
         </Typography>
         <Button
           variant="contained"
+          fullWidth
           startIcon={<AddRoundedIcon />}
           onClick={() => {
             setForm(emptyChannel);
             setError('');
             setDialogOpen(true);
           }}
+          sx={{ flexShrink: 0, width: { xs: '100%', sm: 'auto' }, whiteSpace: 'nowrap' }}
         >
           Tambah Channel
         </Button>
