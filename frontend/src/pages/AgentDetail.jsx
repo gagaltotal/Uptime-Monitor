@@ -609,6 +609,7 @@ export default function AgentDetail() {
             setLogPage(1);
           }}
           sx={{ minWidth: 160 }}
+          SelectProps={{ displayEmpty: true }}
         >
           {LOG_LEVELS.map((l) => (
             <MenuItem key={l.value} value={l.value}>

@@ -212,7 +212,7 @@ Fitur ini memungkinkan Anda memantau **server host secara menyeluruh** — CPU, 
 
 1. Buka **Agent** di sidebar navigasi.
 2. Klik **Tambah Agent**, isi nama dan deskripsi opsional.
-3. Setelah disimpan, token `agt_...` akan **ditampilkan sekali** — simpan dengan aman. Token ini digunakan agen untuk autentikasi (bukan JWT).
+3. Setelah disimpan, token `agt_...` akan **ditampilkan sekali** — simpan dengan aman. Gunakan tombol **Salin** di dialog token untuk menyalinnya. Tombol ini tetap berfungsi meski dashboard diakses lewat HTTP (bukan HTTPS). Token ini digunakan agen untuk autentikasi (bukan JWT).
 4. Pilih channel notifikasi yang ingin menerima alert dari agent ini (reuse notifikasi Discord/Slack/Telegram yang sudah dikonfigurasi).
 
 ### Menginstal Agent Bash
@@ -253,6 +253,7 @@ UPTIME_HTTP_TIMEOUT=10                           # detik
 | `--once` | Kumpulkan dan kirim satu laporan, lalu keluar |
 | `--print` | Kumpulkan dan cetak JSON payload tanpa kirim |
 | `--selftest` | Kumpulkan metrik dan cetak ringkasan human-readable |
+| `--uninstall [--yes]` | Hentikan dan hapus service, skrip, config, log, serta user `uptime-agent` (wajib root) |
 
 Contoh:
 
@@ -260,7 +261,20 @@ Contoh:
 /usr/local/bin/uptime-agent.sh --once
 /usr/local/bin/uptime-agent.sh --print
 /usr/local/bin/uptime-agent.sh --selftest
+sudo /usr/local/bin/uptime-agent.sh --uninstall        # minta konfirmasi
+sudo /usr/local/bin/uptime-agent.sh --uninstall --yes  # tanpa konfirmasi
 ```
+
+### Uninstall Agent
+
+`--uninstall` membersihkan semua komponen yang dipasang:
+
+- service systemd `uptime-agent` (dihentikan, dinonaktifkan, dan unit file dihapus) atau init script OpenRC jika ada;
+- proses agent yang masih berjalan (mis. dari `nohup`);
+- `/usr/local/bin/uptime-agent.sh`, `/etc/uptime-agent/` (termasuk token), dan `/var/log/uptime-agent.log`;
+- user dan group sistem `uptime-agent`.
+
+Tanpa `--yes`, skrip meminta konfirmasi terlebih dahulu. Jika ingin menghapus tanpa skrip, jalankan `sudo systemctl disable --now uptime-agent` lalu hapus file tersebut dan `sudo userdel uptime-agent` secara manual.
 
 ### Menjalankan sebagai systemd Service
 
@@ -294,6 +308,10 @@ Config precedence: environment variable → `/etc/uptime-agent/agent.conf`.
 - Insiden otomatis **resolve** saat metrik kembali normal atau agent melaporkan lagi.
 - **Monitoring service** (`services` pada payload): agent memeriksa service yang gagal menggunakan `systemctl list-units --state=failed` (systemd) atau `rc-status --crashed` (OpenRC). Daftar nama, status, dan deskripsi disimpan di `currentServices` agent dan ditampilkan di halaman detail agent (bagian **Status Service**).
 - Insiden bertipe `service` (**Service Gagal**) dibuat saat ada service yang gagal dan memuat daftar service tersebut. Insiden otomatis resolve saat tidak ada lagi service yang gagal. Notifikasi dikirim ke channel yang terpasang pada agent.
+
+### Log Agent di Dashboard
+
+Di halaman detail agent, bagian **Log Agent** dapat difilter berdasarkan level: **Semua level**, Debug, Info, Warning, atau Error.
 
 ### Laporan Insiden PDF
 

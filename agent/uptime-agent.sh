@@ -12,6 +12,7 @@
 #   ./uptime-agent.sh --once          # collect + send a single report then exit
 #   ./uptime-agent.sh --print         # collect + print the JSON payload, do NOT send
 #   ./uptime-agent.sh --selftest      # gather metrics without sending, show a summary
+#   sudo ./uptime-agent.sh --uninstall [--yes]   # remove service, script, config, log & user
 #
 # Configuration (first match wins):
 #   1. Environment variables: UPTIME_SERVER_URL, UPTIME_AGENT_TOKEN, UPTIME_INTERVAL
@@ -464,6 +465,85 @@ EOF
   fi
 }
 
+# ---------------------------------------------------------------------------
+# Uninstall: stop and remove the service, script, config, log, and user.
+# ---------------------------------------------------------------------------
+readonly INSTALL_BIN="/usr/local/bin/uptime-agent.sh"
+readonly SERVICE_UNIT="/etc/systemd/system/uptime-agent.service"
+readonly OPENRC_INIT="/etc/init.d/uptime-agent"
+readonly CONF_DIR="/etc/uptime-agent"
+readonly LOG_FILE="/var/log/uptime-agent.log"
+readonly AGENT_USER="uptime-agent"
+
+uninstall_agent() {
+  local assume_yes=0
+  [ "${1:-}" = "--yes" ] && assume_yes=1
+
+  if [ "$(id -u)" -ne 0 ]; then
+    error "Uninstall harus dijalankan sebagai root (gunakan sudo)."
+    return 1
+  fi
+
+  if [ "$assume_yes" -ne 1 ]; then
+    local ans=""
+    printf 'Hapus service, skrip, konfigurasi, log, dan user "%s"? [y/N] ' "$AGENT_USER" >&2
+    read -r ans </dev/tty 2>/dev/null || ans=""
+    case "$ans" in
+      y|Y|yes|YES) ;;
+      *) log "Uninstall dibatalkan."; return 0 ;;
+    esac
+  fi
+
+  log "Memulai uninstall ${SCRIPT_NAME}..."
+
+  # 1. systemd service
+  if have systemctl; then
+    systemctl stop uptime-agent 2>/dev/null || true
+    systemctl disable uptime-agent 2>/dev/null || true
+    systemctl reset-failed uptime-agent 2>/dev/null || true
+  fi
+  if [ -f "$SERVICE_UNIT" ]; then
+    rm -f "$SERVICE_UNIT"
+    log "Unit systemd dihapus."
+  fi
+  if have systemctl; then
+    systemctl daemon-reload 2>/dev/null || true
+  fi
+
+  # 2. OpenRC service (if present)
+  if [ -f "$OPENRC_INIT" ]; then
+    if have rc-service; then rc-service uptime-agent stop >/dev/null 2>&1 || true; fi
+    if have rc-update; then rc-update del uptime-agent >/dev/null 2>&1 || true; fi
+    rm -f "$OPENRC_INIT"
+    log "Init script OpenRC dihapus."
+  fi
+
+  # 3. Stop any leftover background process (e.g. started via nohup)
+  if have pgrep; then
+    local pid
+    for pid in $(pgrep -f "$INSTALL_BIN" 2>/dev/null); do
+      [ "$pid" = "$$" ] && continue
+      kill "$pid" 2>/dev/null || true
+    done
+  fi
+
+  # 4. Script, config, and log
+  rm -f "$INSTALL_BIN"
+  rm -rf "$CONF_DIR"
+  rm -f "$LOG_FILE"
+  log "Skrip, konfigurasi, dan log dihapus."
+
+  # 5. System user and group
+  if id "$AGENT_USER" >/dev/null 2>&1; then
+    userdel "$AGENT_USER" 2>/dev/null || warn "Gagal menghapus user ${AGENT_USER}."
+  fi
+  if getent group "$AGENT_USER" >/dev/null 2>&1; then
+    groupdel "$AGENT_USER" 2>/dev/null || true
+  fi
+
+  log "Uninstall ${SCRIPT_NAME} selesai. Semua komponen telah dibersihkan."
+}
+
 run_loop() {
   log "Agent dimulai — interval ${UPTIME_INTERVAL}s, server ${UPTIME_SERVER_URL:-<unset>}."
 
@@ -488,11 +568,13 @@ usage() {
   cat >&2 <<EOF
 ${SCRIPT_NAME} — Uptime Monitor agent collector
 
-Usage: $(basename "$0") [--once|--print|--selftest|--help]
+Usage: $(basename "$0") [--once|--print|--selftest|--uninstall [--yes]|--help]
 
   --once       collect and send a single report, then exit
   --print      collect and print the JSON payload without sending
   --selftest   gather metrics and print a human-readable summary
+  --uninstall  stop and remove the service, script, config, log, and the
+               uptime-agent user (run as root; add --yes to skip the prompt)
   --help       show this help
 
 Environment / config ($CONF_FILE):
@@ -508,6 +590,7 @@ main() {
     --once)     run_once ;;
     --print)    run_print ;;
     --selftest) run_selftest ;;
+    --uninstall) uninstall_agent "${2:-}" ;;
     --loop|"")  run_loop ;;
     --help|-h)  usage ;;
     *) error "Opsi tidak dikenal: $1"; usage; exit 2 ;;
