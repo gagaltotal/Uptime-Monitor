@@ -177,32 +177,13 @@ export default function MonitorFormDialog({ open, onClose, onSubmit, initialMoni
                 fullWidth
                 helperText="Sertifikat SSL akan otomatis diperiksa untuk URL https://"
               />
-              <Grid container spacing={2} alignItems="center">
-                <Grid item xs={12} sm={6}>
-                  <TextField select label="Metode" value={form.method} onChange={set('method')} fullWidth>
-                    <MenuItem value="GET">GET</MenuItem>
-                    <MenuItem value="HEAD">HEAD</MenuItem>
-                    <MenuItem value="POST">POST</MenuItem>
-                  </TextField>
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <FormControlLabel
-                    control={
-                      <Switch checked={form.ignoreTlsErrors} onChange={(e) => setForm((f) => ({ ...f, ignoreTlsErrors: e.target.checked }))} />
-                    }
-                    label="Abaikan error TLS"
-                    sx={{
-                      m: 0,
-                      minHeight: 56,
-                      px: 1.5,
-                      width: '100%',
-                      border: '1px solid',
-                      borderColor: 'divider',
-                      borderRadius: 1,
-                    }}
-                  />
-                </Grid>
-              </Grid>
+              <FormControlLabel
+                control={
+                  <Switch checked={form.ignoreTlsErrors} onChange={(e) => setForm((f) => ({ ...f, ignoreTlsErrors: e.target.checked }))} />
+                }
+                label="Abaikan error TLS"
+                sx={{ m: 0, alignSelf: 'flex-start' }}
+              />
             </>
           )}
 
@@ -228,7 +209,16 @@ export default function MonitorFormDialog({ open, onClose, onSubmit, initialMoni
           <Divider />
 
           <Grid container spacing={2}>
-            <Grid item xs={12} sm={6} lg={4}>
+            {form.type === 'http' && (
+              <Grid item xs={12} sm={6} lg={3}>
+                <TextField select label="Metode" value={form.method} onChange={set('method')} fullWidth>
+                  <MenuItem value="GET">GET</MenuItem>
+                  <MenuItem value="HEAD">HEAD</MenuItem>
+                  <MenuItem value="POST">POST</MenuItem>
+                </TextField>
+              </Grid>
+            )}
+            <Grid item xs={12} sm={6} lg={form.type === 'http' ? 3 : 4}>
               <TextField select label="Interval cek" value={form.interval} onChange={set('interval')} fullWidth>
                 {INTERVAL_OPTIONS.map((o) => (
                   <MenuItem key={o.value} value={o.value}>
@@ -237,10 +227,10 @@ export default function MonitorFormDialog({ open, onClose, onSubmit, initialMoni
                 ))}
               </TextField>
             </Grid>
-            <Grid item xs={12} sm={6} lg={4}>
+            <Grid item xs={12} sm={6} lg={form.type === 'http' ? 3 : 4}>
               <TextField label="Timeout (detik)" type="number" value={form.timeout} onChange={set('timeout')} fullWidth />
             </Grid>
-            <Grid item xs={12} sm={6} lg={4}>
+            <Grid item xs={12} sm={6} lg={form.type === 'http' ? 3 : 4}>
               <TextField select label="Percobaan ulang" value={form.retries} onChange={set('retries')} fullWidth>
                 {RETRY_OPTIONS.map((n) => (
                   <MenuItem key={n} value={n}>
