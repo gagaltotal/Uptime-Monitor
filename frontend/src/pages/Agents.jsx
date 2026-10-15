@@ -330,7 +330,13 @@ export function AgentFormDialog({ open, initialAgent, onClose, onSubmit }) {
         hostname: form.hostname,
         distro: form.distro,
         ipAddress: form.ipAddress,
-        tags: form.tags,
+        tags: Array.from(
+          new Set(
+            [...form.tags, ...tagInput.split(',')]
+              .map((tag) => String(tag).trim())
+              .filter(Boolean)
+          )
+        ).slice(0, 20),
         interval: Number(form.interval),
         isActive: form.isActive,
         notificationChannels: form.notificationChannels,
@@ -384,33 +390,45 @@ export function AgentFormDialog({ open, initialAgent, onClose, onSubmit }) {
             onChange={set('ipAddress')}
             fullWidth
           />
-          <Box>
-            <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap" sx={{ mb: form.tags.length ? 1 : 0 }}>
-              {form.tags.map((tag) => (
-                <Chip
-                  key={tag}
-                  size="small"
-                  label={tag}
-                  onDelete={() => setForm((current) => ({ ...current, tags: current.tags.filter((item) => item !== tag) }))}
-                />
-              ))}
-            </Stack>
-            <TextField
-              label="Tag (opsional)"
-              placeholder="Contoh: server, production"
-              value={tagInput}
-              onChange={(event) => setTagInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ',') {
-                  event.preventDefault();
-                  addTags(tagInput);
-                }
-              }}
-              onBlur={() => tagInput.trim() && addTags(tagInput)}
-              helperText="Tekan Enter atau koma untuk menambahkan tag."
-              fullWidth
-            />
-          </Box>
+          <Autocomplete
+            multiple
+            freeSolo
+            options={[]}
+            value={form.tags}
+            inputValue={tagInput}
+            onInputChange={(_, value) => setTagInput(value)}
+            onChange={(_, value) => {
+              setForm((current) => ({
+                ...current,
+                tags: Array.from(new Set(value.map((tag) => String(tag).trim()).filter(Boolean))).slice(0, 20),
+              }));
+              setTagInput('');
+            }}
+            onBlur={() => tagInput.trim() && addTags(tagInput)}
+            renderTags={(value, getTagProps) =>
+              value.map((tag, index) => (
+                <Chip variant="outlined" size="small" label={tag} {...getTagProps({ index })} />
+              ))
+            }
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Tag (opsional)"
+                placeholder={form.tags.length ? '' : 'Contoh: server, production'}
+                helperText="Tekan Enter atau koma untuk menambahkan tag."
+                inputProps={{
+                  ...params.inputProps,
+                  onKeyDown: (event) => {
+                    params.inputProps.onKeyDown?.(event);
+                    if (event.key === ',') {
+                      event.preventDefault();
+                      addTags(tagInput);
+                    }
+                  },
+                }}
+              />
+            )}
+          />
           <Divider />
           <TextField
             select
