@@ -132,8 +132,8 @@ export default function MonitorFormDialog({ open, onClose, onSubmit, initialMoni
   return (
     <Dialog open={open} onClose={saving ? undefined : onClose} maxWidth="md" fullWidth fullScreen={fullScreen}>
       <DialogTitle>{isEdit ? 'Edit Monitor' : 'Tambah Monitor Baru'}</DialogTitle>
-      <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2.5 }}>
-        <Stack spacing={2.5}>
+      <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: { xs: 2, sm: 3 } }}>
+        <Stack spacing={2}>
           {error && <Alert severity="error">{error}</Alert>}
 
           <TextField
@@ -171,20 +171,29 @@ export default function MonitorFormDialog({ open, onClose, onSubmit, initialMoni
                 fullWidth
                 helperText="Sertifikat SSL akan otomatis diperiksa untuk URL https://"
               />
-              <Grid container spacing={2}>
-                <Grid item xs={12} sm={6}>
+              <Grid container spacing={2} alignItems="center">
+                <Grid item xs={12} md={6}>
                   <TextField select label="Metode" value={form.method} onChange={set('method')} fullWidth>
                     <MenuItem value="GET">GET</MenuItem>
                     <MenuItem value="HEAD">HEAD</MenuItem>
                     <MenuItem value="POST">POST</MenuItem>
                   </TextField>
                 </Grid>
-                <Grid item xs={12} sm={6} sx={{ display: 'flex', alignItems: 'center' }}>
+                <Grid item xs={12} md={6}>
                   <FormControlLabel
                     control={
                       <Switch checked={form.ignoreTlsErrors} onChange={(e) => setForm((f) => ({ ...f, ignoreTlsErrors: e.target.checked }))} />
                     }
                     label="Abaikan error TLS"
+                    sx={{
+                      m: 0,
+                      minHeight: 56,
+                      px: 1.5,
+                      width: '100%',
+                      border: '1px solid',
+                      borderColor: 'divider',
+                      borderRadius: 1,
+                    }}
                   />
                 </Grid>
               </Grid>
@@ -193,7 +202,7 @@ export default function MonitorFormDialog({ open, onClose, onSubmit, initialMoni
 
           {(form.type === 'tcp' || form.type === 'ping') && (
             <Grid container spacing={2}>
-              <Grid item xs={form.type === 'tcp' ? 8 : 12} sm={form.type === 'tcp' ? 9 : 12}>
+              <Grid item xs={12} sm={form.type === 'tcp' ? 9 : 12}>
                 <TextField
                   label="Host / IP"
                   placeholder="192.168.1.10 atau server.contoh.com"
@@ -203,7 +212,7 @@ export default function MonitorFormDialog({ open, onClose, onSubmit, initialMoni
                 />
               </Grid>
               {form.type === 'tcp' && (
-                <Grid item xs={4} sm={3}>
+                <Grid item xs={12} sm={3}>
                   <TextField label="Port" type="number" value={form.port} onChange={set('port')} fullWidth />
                 </Grid>
               )}
@@ -213,7 +222,7 @@ export default function MonitorFormDialog({ open, onClose, onSubmit, initialMoni
           <Divider />
 
           <Grid container spacing={2}>
-            <Grid item xs={12} sm={4}>
+            <Grid item xs={12} md={4}>
               <TextField select label="Interval cek" value={form.interval} onChange={set('interval')} fullWidth>
                 {INTERVAL_OPTIONS.map((o) => (
                   <MenuItem key={o.value} value={o.value}>
@@ -222,10 +231,10 @@ export default function MonitorFormDialog({ open, onClose, onSubmit, initialMoni
                 ))}
               </TextField>
             </Grid>
-            <Grid item xs={12} sm={4}>
+            <Grid item xs={12} md={4}>
               <TextField label="Timeout (detik)" type="number" value={form.timeout} onChange={set('timeout')} fullWidth />
             </Grid>
-            <Grid item xs={12} sm={4}>
+            <Grid item xs={12} md={4}>
               <TextField select label="Percobaan ulang" value={form.retries} onChange={set('retries')} fullWidth>
                 {RETRY_OPTIONS.map((n) => (
                   <MenuItem key={n} value={n}>
@@ -236,34 +245,42 @@ export default function MonitorFormDialog({ open, onClose, onSubmit, initialMoni
             </Grid>
           </Grid>
 
-          <Box>
-            <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap" sx={{ mb: form.tags.length ? 1 : 0 }}>
-              {form.tags.map((tag) => (
-                <Chip
-                  key={tag}
-                  variant="outlined"
-                  size="small"
-                  label={tag}
-                  onDelete={() => setForm((current) => ({ ...current, tags: current.tags.filter((item) => item !== tag) }))}
-                />
-              ))}
-            </Stack>
-            <TextField
-              label="Tag (opsional)"
-              placeholder="Contoh: server, production"
-              value={tagInput}
-              onChange={(event) => setTagInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ',') {
-                  event.preventDefault();
-                  addTags(tagInput);
-                }
-              }}
-              onBlur={() => tagInput.trim() && addTags(tagInput)}
-              helperText="Tekan Enter atau koma untuk menambahkan tag."
-              fullWidth
-            />
-          </Box>
+          <Autocomplete
+            multiple
+            freeSolo
+            options={[]}
+            value={form.tags}
+            inputValue={tagInput}
+            onInputChange={(_, value) => setTagInput(value)}
+            onChange={(_, value) => {
+              setForm((current) => ({
+                ...current,
+                tags: Array.from(new Set(value.map((tag) => String(tag).trim()).filter(Boolean))).slice(0, 20),
+              }));
+              setTagInput('');
+            }}
+            onBlur={() => tagInput.trim() && addTags(tagInput)}
+            renderTags={(value, getTagProps) =>
+              value.map((tag, index) => (
+                <Chip variant="outlined" size="small" label={tag} {...getTagProps({ index })} />
+              ))
+            }
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Tag (opsional)"
+                placeholder={form.tags.length ? '' : 'Contoh: server, production'}
+                helperText="Tekan Enter atau koma untuk menambahkan tag."
+                onKeyDown={(event) => {
+                  if (event.key === ',') {
+                    event.preventDefault();
+                    addTags(tagInput);
+                  }
+                  params.inputProps.onKeyDown?.(event);
+                }}
+              />
+            )}
+          />
 
           <Autocomplete
             multiple
