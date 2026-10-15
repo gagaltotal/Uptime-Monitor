@@ -467,8 +467,12 @@ export default function AgentDetail() {
             sx={{ fontFamily: (t) => t.typography.fontFamilyMono }}
           >
             {targetLabel(agent)}
-            {agent.distro ? ` · ${agent.distro}${agent.distroVersion ? ` ${agent.distroVersion}` : ''}` : ''}
             {agent.ipAddress ? ` · ${agent.ipAddress}` : ''}
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+            OS: {[agent.distro || agent.os_info?.distro || agent.os_info?.name, agent.distroVersion || agent.os_info?.distroVersion].filter(Boolean).join(' ' ) || 'Belum terdeteksi'}
+            {' · '}Kernel: {agent.kernel || agent.os_info?.kernel || 'Belum terdeteksi'}
+            {agent.arch || agent.os_info?.arch ? ` · ${agent.arch || agent.os_info?.arch}` : ''}
           </Typography>
           {agent.tags?.length ? (
             <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap', gap: 1 }}>

@@ -27,6 +27,7 @@ import {
   TextField,
   Tooltip,
   Typography,
+  useMediaQuery,
 } from '@mui/material';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
@@ -200,12 +201,13 @@ function AgentRow({ agent, onEdit, onDelete, onToggle, onRegenerateToken }) {
       <Box sx={{ width: 96, display: { xs: 'none', sm: 'block' } }}>
         <StatusBadge status={status} isActive={agent.isActive} />
       </Box>
-      <IconButton size="small" onClick={openMenu}>
+      <IconButton size="small" aria-label={`Menu tindakan ${agent.name}`} onClick={openMenu}>
         <MoreVertRoundedIcon fontSize="small" />
       </IconButton>
-      <Menu anchorEl={anchorEl} open={!!anchorEl} onClose={closeMenu}>
+      <Menu anchorEl={anchorEl} open={!!anchorEl} onClose={closeMenu} onClick={(event) => event.stopPropagation()}>
         <MenuItem
-          onClick={() => {
+          onClick={(event) => {
+            event.stopPropagation();
             closeMenu();
             onToggle(agent);
           }}
@@ -220,7 +222,8 @@ function AgentRow({ agent, onEdit, onDelete, onToggle, onRegenerateToken }) {
           <ListItemText>{agent.isActive ? 'Nonaktifkan' : 'Aktifkan'}</ListItemText>
         </MenuItem>
         <MenuItem
-          onClick={() => {
+          onClick={(event) => {
+            event.stopPropagation();
             closeMenu();
             onEdit(agent);
           }}
@@ -231,7 +234,8 @@ function AgentRow({ agent, onEdit, onDelete, onToggle, onRegenerateToken }) {
           <ListItemText>Ubah</ListItemText>
         </MenuItem>
         <MenuItem
-          onClick={() => {
+          onClick={(event) => {
+            event.stopPropagation();
             closeMenu();
             onRegenerateToken(agent);
           }}
@@ -242,7 +246,8 @@ function AgentRow({ agent, onEdit, onDelete, onToggle, onRegenerateToken }) {
           <ListItemText>Token Baru</ListItemText>
         </MenuItem>
         <MenuItem
-          onClick={() => {
+          onClick={(event) => {
+            event.stopPropagation();
             closeMenu();
             onDelete(agent);
           }}
@@ -260,9 +265,11 @@ function AgentRow({ agent, onEdit, onDelete, onToggle, onRegenerateToken }) {
 
 export function AgentFormDialog({ open, initialAgent, onClose, onSubmit }) {
   const [form, setForm] = useState(emptyForm);
+  const [tagInput, setTagInput] = useState('');
   const [channels, setChannels] = useState([]);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const fullScreen = useMediaQuery((theme) => theme.breakpoints.down('sm'));
   const isEdit = !!initialAgent;
 
   useEffect(() => {
@@ -289,11 +296,23 @@ export function AgentFormDialog({ open, initialAgent, onClose, onSubmit }) {
     } else {
       setForm(emptyForm);
     }
+    setTagInput('');
   }, [open, initialAgent]);
 
   const set = (key) => (event) => {
     const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
     setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const addTags = (value) => {
+    const newTags = String(value || '').split(',').map((tag) => tag.trim()).filter(Boolean);
+    if (newTags.length) {
+      setForm((current) => ({
+        ...current,
+        tags: Array.from(new Set([...current.tags, ...newTags])).slice(0, 20),
+      }));
+    }
+    setTagInput('');
   };
 
   const selectedChannelObjects = useMemo(
@@ -324,9 +343,9 @@ export function AgentFormDialog({ open, initialAgent, onClose, onSubmit }) {
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={saving ? undefined : onClose} maxWidth="md" fullWidth fullScreen={fullScreen}>
       <DialogTitle>{isEdit ? 'Ubah Agent' : 'Tambah Agent'}</DialogTitle>
-      <DialogContent dividers>
+      <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2.5 }}>
         <Stack spacing={2.5}>
           {error && <Alert severity="error">{error}</Alert>}
           <TextField
@@ -365,19 +384,33 @@ export function AgentFormDialog({ open, initialAgent, onClose, onSubmit }) {
             onChange={set('ipAddress')}
             fullWidth
           />
-          <Autocomplete
-            multiple
-            freeSolo
-            options={[]}
-            value={form.tags}
-            onChange={(_, value) => setForm((prev) => ({ ...prev, tags: value }))}
-            renderTags={(value, getTagProps) =>
-              value.map((option, index) => (
-                <Chip label={option} size="small" {...getTagProps({ index })} />
-              ))
-            }
-            renderInput={(params) => <TextField {...params} label="Tag" />}
-          />
+          <Box>
+            <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap" sx={{ mb: form.tags.length ? 1 : 0 }}>
+              {form.tags.map((tag) => (
+                <Chip
+                  key={tag}
+                  size="small"
+                  label={tag}
+                  onDelete={() => setForm((current) => ({ ...current, tags: current.tags.filter((item) => item !== tag) }))}
+                />
+              ))}
+            </Stack>
+            <TextField
+              label="Tag (opsional)"
+              placeholder="Contoh: server, production"
+              value={tagInput}
+              onChange={(event) => setTagInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ',') {
+                  event.preventDefault();
+                  addTags(tagInput);
+                }
+              }}
+              onBlur={() => tagInput.trim() && addTags(tagInput)}
+              helperText="Tekan Enter atau koma untuk menambahkan tag."
+              fullWidth
+            />
+          </Box>
           <Divider />
           <TextField
             select
@@ -413,7 +446,7 @@ export function AgentFormDialog({ open, initialAgent, onClose, onSubmit }) {
           />
         </Stack>
       </DialogContent>
-      <DialogActions sx={{ px: 3, py: 2 }}>
+      <DialogActions sx={{ px: { xs: 2, sm: 3 }, py: 2, flexDirection: { xs: 'column', sm: 'row' }, alignItems: { xs: 'stretch', sm: 'center' }, gap: 1 }}>
         <Button onClick={onClose} color="inherit" disabled={saving}>
           Batal
         </Button>
@@ -421,6 +454,7 @@ export function AgentFormDialog({ open, initialAgent, onClose, onSubmit }) {
           onClick={handleSubmit}
           variant="contained"
           disabled={saving || !form.name.trim()}
+          fullWidth={fullScreen}
         >
           {isEdit ? 'Simpan Perubahan' : 'Tambah Agent'}
         </Button>

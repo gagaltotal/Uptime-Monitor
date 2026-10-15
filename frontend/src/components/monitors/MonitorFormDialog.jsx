@@ -19,6 +19,7 @@ import {
   ToggleButton,
   ToggleButtonGroup,
   Typography,
+  useMediaQuery,
 } from '@mui/material';
 import api from '../../api/axios';
 
@@ -52,9 +53,11 @@ const emptyForm = {
 
 export default function MonitorFormDialog({ open, onClose, onSubmit, initialMonitor }) {
   const [form, setForm] = useState(emptyForm);
+  const [tagInput, setTagInput] = useState('');
   const [channels, setChannels] = useState([]);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const fullScreen = useMediaQuery((theme) => theme.breakpoints.down('sm'));
   const isEdit = !!initialMonitor;
 
   useEffect(() => {
@@ -68,16 +71,29 @@ export default function MonitorFormDialog({ open, onClose, onSubmit, initialMoni
       setForm({
         ...emptyForm,
         ...initialMonitor,
+        tags: Array.isArray(initialMonitor.tags) ? initialMonitor.tags : [],
         port: initialMonitor.port ?? '',
         notificationChannels: (initialMonitor.notificationChannels || []).map((c) => (typeof c === 'string' ? c : c._id)),
       });
     } else {
       setForm(emptyForm);
     }
+    setTagInput('');
     setError('');
   }, [open, initialMonitor]);
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  const addTags = (value) => {
+    const newTags = String(value || '').split(',').map((tag) => tag.trim()).filter(Boolean);
+    if (newTags.length) {
+      setForm((current) => ({
+        ...current,
+        tags: Array.from(new Set([...current.tags, ...newTags])).slice(0, 20),
+      }));
+    }
+    setTagInput('');
+  };
 
   const selectedChannelObjects = useMemo(
     () => channels.filter((c) => form.notificationChannels.includes(c._id)),
@@ -114,9 +130,9 @@ export default function MonitorFormDialog({ open, onClose, onSubmit, initialMoni
   };
 
   return (
-    <Dialog open={open} onClose={saving ? undefined : onClose} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={saving ? undefined : onClose} maxWidth="md" fullWidth fullScreen={fullScreen}>
       <DialogTitle>{isEdit ? 'Edit Monitor' : 'Tambah Monitor Baru'}</DialogTitle>
-      <DialogContent dividers>
+      <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2.5 }}>
         <Stack spacing={2.5}>
           {error && <Alert severity="error">{error}</Alert>}
 
@@ -156,14 +172,14 @@ export default function MonitorFormDialog({ open, onClose, onSubmit, initialMoni
                 helperText="Sertifikat SSL akan otomatis diperiksa untuk URL https://"
               />
               <Grid container spacing={2}>
-                <Grid item xs={6}>
+                <Grid item xs={12} sm={6}>
                   <TextField select label="Metode" value={form.method} onChange={set('method')} fullWidth>
                     <MenuItem value="GET">GET</MenuItem>
                     <MenuItem value="HEAD">HEAD</MenuItem>
                     <MenuItem value="POST">POST</MenuItem>
                   </TextField>
                 </Grid>
-                <Grid item xs={6} sx={{ display: 'flex', alignItems: 'center' }}>
+                <Grid item xs={12} sm={6} sx={{ display: 'flex', alignItems: 'center' }}>
                   <FormControlLabel
                     control={
                       <Switch checked={form.ignoreTlsErrors} onChange={(e) => setForm((f) => ({ ...f, ignoreTlsErrors: e.target.checked }))} />
@@ -177,7 +193,7 @@ export default function MonitorFormDialog({ open, onClose, onSubmit, initialMoni
 
           {(form.type === 'tcp' || form.type === 'ping') && (
             <Grid container spacing={2}>
-              <Grid item xs={form.type === 'tcp' ? 8 : 12}>
+              <Grid item xs={form.type === 'tcp' ? 8 : 12} sm={form.type === 'tcp' ? 9 : 12}>
                 <TextField
                   label="Host / IP"
                   placeholder="192.168.1.10 atau server.contoh.com"
@@ -187,7 +203,7 @@ export default function MonitorFormDialog({ open, onClose, onSubmit, initialMoni
                 />
               </Grid>
               {form.type === 'tcp' && (
-                <Grid item xs={4}>
+                <Grid item xs={4} sm={3}>
                   <TextField label="Port" type="number" value={form.port} onChange={set('port')} fullWidth />
                 </Grid>
               )}
@@ -197,7 +213,7 @@ export default function MonitorFormDialog({ open, onClose, onSubmit, initialMoni
           <Divider />
 
           <Grid container spacing={2}>
-            <Grid item xs={4}>
+            <Grid item xs={12} sm={4}>
               <TextField select label="Interval cek" value={form.interval} onChange={set('interval')} fullWidth>
                 {INTERVAL_OPTIONS.map((o) => (
                   <MenuItem key={o.value} value={o.value}>
@@ -206,10 +222,10 @@ export default function MonitorFormDialog({ open, onClose, onSubmit, initialMoni
                 ))}
               </TextField>
             </Grid>
-            <Grid item xs={4}>
+            <Grid item xs={12} sm={4}>
               <TextField label="Timeout (detik)" type="number" value={form.timeout} onChange={set('timeout')} fullWidth />
             </Grid>
-            <Grid item xs={4}>
+            <Grid item xs={12} sm={4}>
               <TextField select label="Percobaan ulang" value={form.retries} onChange={set('retries')} fullWidth>
                 {RETRY_OPTIONS.map((n) => (
                   <MenuItem key={n} value={n}>
@@ -220,17 +236,34 @@ export default function MonitorFormDialog({ open, onClose, onSubmit, initialMoni
             </Grid>
           </Grid>
 
-          <Autocomplete
-            multiple
-            freeSolo
-            options={[]}
-            value={form.tags}
-            onChange={(e, val) => setForm((f) => ({ ...f, tags: val }))}
-            renderTags={(value, getTagProps) =>
-              value.map((tag, index) => <Chip variant="outlined" size="small" label={tag} {...getTagProps({ index })} />)
-            }
-            renderInput={(params) => <TextField {...params} label="Tag (opsional)" placeholder="Ketik lalu Enter" />}
-          />
+          <Box>
+            <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap" sx={{ mb: form.tags.length ? 1 : 0 }}>
+              {form.tags.map((tag) => (
+                <Chip
+                  key={tag}
+                  variant="outlined"
+                  size="small"
+                  label={tag}
+                  onDelete={() => setForm((current) => ({ ...current, tags: current.tags.filter((item) => item !== tag) }))}
+                />
+              ))}
+            </Stack>
+            <TextField
+              label="Tag (opsional)"
+              placeholder="Contoh: server, production"
+              value={tagInput}
+              onChange={(event) => setTagInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ',') {
+                  event.preventDefault();
+                  addTags(tagInput);
+                }
+              }}
+              onBlur={() => tagInput.trim() && addTags(tagInput)}
+              helperText="Tekan Enter atau koma untuk menambahkan tag."
+              fullWidth
+            />
+          </Box>
 
           <Autocomplete
             multiple
@@ -246,11 +279,11 @@ export default function MonitorFormDialog({ open, onClose, onSubmit, initialMoni
           />
         </Stack>
       </DialogContent>
-      <DialogActions sx={{ px: 3, py: 2 }}>
+      <DialogActions sx={{ px: { xs: 2, sm: 3 }, py: 2, flexDirection: { xs: 'column', sm: 'row' }, alignItems: { xs: 'stretch', sm: 'center' }, gap: 1 }}>
         <Button onClick={onClose} color="inherit" disabled={saving}>
           Batal
         </Button>
-        <Button onClick={handleSubmit} variant="contained" disabled={saving || !form.name.trim()}>
+        <Button onClick={handleSubmit} variant="contained" disabled={saving || !form.name.trim()} fullWidth={fullScreen}>
           {isEdit ? 'Simpan Perubahan' : 'Tambah Monitor'}
         </Button>
       </DialogActions>
