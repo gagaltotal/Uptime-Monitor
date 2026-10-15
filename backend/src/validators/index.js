@@ -15,6 +15,23 @@ const password = Joi.string().min(8).max(128).required().messages({
 
 const objectId = Joi.string().hex().length(24);
 
+function normalizeTags(tags) {
+  if (!Array.isArray(tags)) return [];
+
+  const seen = new Set();
+  const result = [];
+  for (const tag of tags) {
+    const value = String(tag ?? '').trim();
+    if (!value) continue;
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(value.slice(0, 40));
+    if (result.length >= 20) break;
+  }
+  return result;
+}
+
 const schemas = {
   setup: Joi.object({
     name: Joi.string().trim().min(2).max(100).required(),
@@ -87,7 +104,7 @@ const schemas = {
     interval: Joi.number().integer().min(20).max(86400).default(60),
     timeout: Joi.number().integer().min(1).max(60).default(10),
     retries: Joi.number().integer().min(0).max(5).default(1),
-    tags: Joi.array().items(Joi.string().trim().max(40)).max(20).default([]),
+    tags: Joi.array().items(Joi.string().trim().max(40).allow('')).max(20).default([]),
     isActive: Joi.boolean().default(true),
     notificationChannels: Joi.array().items(objectId).default([]),
   }),
@@ -164,7 +181,7 @@ const schemas = {
     kernel: Joi.string().trim().max(200).allow('').default(''),
     arch: Joi.string().trim().max(40).allow('').default(''),
     ipAddress: Joi.string().trim().max(64).allow('').default(''),
-    tags: Joi.array().items(Joi.string().trim().max(40)).max(20).default([]),
+    tags: Joi.array().items(Joi.string().trim().max(40).allow('')).max(20).default([]),
     interval: Joi.number().integer().min(10).max(86400).default(60),
     isActive: Joi.boolean().default(true),
     notificationChannels: Joi.array().items(objectId).default([]),
@@ -185,6 +202,19 @@ const schemas = {
       loadAverage: Joi.array().items(Joi.number().min(0)).max(3),
       uptimeSeconds: Joi.number().min(0),
       processCount: Joi.number().integer().min(0),
+    }).default({}),
+    hardware: Joi.object({
+      cpuModel: Joi.string().trim().max(200).allow(''),
+      cpuCores: Joi.number().integer().min(1),
+      memoryTotalMb: Joi.number().min(0),
+      diskTotalGb: Joi.number().min(0),
+      storage: Joi.array().items(
+        Joi.object({
+          name: Joi.string().trim().max(120).allow(''),
+          type: Joi.string().trim().max(40).allow(''),
+          size: Joi.string().trim().max(80).allow(''),
+        })
+      ).default([]),
     }).default({}),
     osInfo: Joi.object().unknown(true),
     // Daftar service yang berstatus gagal di host (systemd / OpenRC).
@@ -229,6 +259,9 @@ function validate(schemaName) {
       return next(new ApiError(400, message));
     }
     req.body = value;
+    if (Array.isArray(req.body.tags)) {
+      req.body.tags = normalizeTags(req.body.tags);
+    }
     next();
   };
 }

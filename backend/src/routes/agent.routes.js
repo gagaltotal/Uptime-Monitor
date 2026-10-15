@@ -84,6 +84,7 @@ router.post(
   catchAsync(async (req, res) => {
     const agent = req.agent;
     const osInfo = req.body.osInfo || {};
+    const hardware = req.body.hardware || {};
 
     // Let the agent keep its own description of the machine up to date
     // (distro/kernel/arch/IP change after upgrades or reboots).
@@ -94,7 +95,13 @@ router.post(
       }
     }
     if (Object.keys(osInfo).length) {
-      agent.os_info = osInfo;
+      agent.os_info = { ...(agent.os_info || {}), ...osInfo };
+    }
+    if (Object.keys(hardware).length) {
+      agent.hardware = { ...(agent.hardware || {}), ...hardware };
+      if (hardware.cpuModel) agent.cpuModel = hardware.cpuModel;
+      if (hardware.memoryTotalMb) agent.memoryTotalMb = hardware.memoryTotalMb;
+      if (hardware.diskTotalGb) agent.diskTotalGb = hardware.diskTotalGb;
     }
 
     const metric = await agentEngine.handleReport(agent, req.body);
@@ -183,6 +190,7 @@ router.post(
     const token = Agent.generateToken();
     const agent = await Agent.create({
       ...req.body,
+      tags: Array.isArray(req.body.tags) ? req.body.tags.map((tag) => String(tag).trim()).filter(Boolean).slice(0, 20) : [],
       tokenHash: Agent.hashToken(token),
       tokenPreview: token.slice(0, 12),
       createdBy: req.user._id,
@@ -243,7 +251,10 @@ router.put(
     const agent = await Agent.findById(req.params.id);
     if (!agent) throw new ApiError(404, 'Agent tidak ditemukan.');
 
-    Object.assign(agent, req.body);
+    Object.assign(agent, {
+      ...req.body,
+      tags: Array.isArray(req.body.tags) ? req.body.tags.map((tag) => String(tag).trim()).filter(Boolean).slice(0, 20) : [],
+    });
     await agent.save();
 
     res.json({ agent: stripSecrets(agent) });

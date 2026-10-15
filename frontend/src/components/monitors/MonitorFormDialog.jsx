@@ -94,7 +94,7 @@ export default function MonitorFormDialog({ open, onClose, onSubmit, initialMoni
         interval: Number(form.interval),
         timeout: Number(form.timeout),
         retries: Number(form.retries),
-        tags: form.tags,
+        tags: Array.from(new Set((form.tags || []).map((tag) => String(tag).trim()).filter(Boolean))).slice(0, 20),
         notificationChannels: form.notificationChannels,
       };
       if (form.type === 'http') {

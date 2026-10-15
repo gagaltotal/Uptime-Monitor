@@ -50,6 +50,7 @@ const agentSchema = new mongoose.Schema(
       processCount: { type: Number },
     },
 
+    hardware: { type: mongoose.Schema.Types.Mixed, default: {} },
     os_info: { type: mongoose.Schema.Types.Mixed },
 
     // Snapshot status service dari laporan terakhir (hanya service yang gagal).

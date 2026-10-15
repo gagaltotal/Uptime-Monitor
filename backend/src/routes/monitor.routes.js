@@ -10,6 +10,22 @@ const monitorEngine = require('../services/monitorEngine');
 
 const router = express.Router();
 
+function normalizeTags(tags) {
+  if (!Array.isArray(tags)) return [];
+  const seen = new Set();
+  const next = [];
+  for (const tag of tags) {
+    const value = String(tag ?? '').trim();
+    if (!value) continue;
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    next.push(value.slice(0, 40));
+    if (next.length >= 20) break;
+  }
+  return next;
+}
+
 router.use(protect); // every route below requires a logged-in admin
 
 const RANGE_TO_MS = {
@@ -66,6 +82,7 @@ router.post(
   catchAsync(async (req, res) => {
     const monitor = await Monitor.create({
       ...req.body,
+      tags: normalizeTags(req.body.tags),
       createdBy: req.user._id,
       nextCheckAt: new Date(), // check it immediately, not after a full interval
     });
@@ -82,7 +99,7 @@ router.put(
     const monitor = await Monitor.findById(req.params.id);
     if (!monitor) throw new ApiError(404, 'Monitor tidak ditemukan.');
 
-    Object.assign(monitor, req.body);
+    Object.assign(monitor, { ...req.body, tags: normalizeTags(req.body.tags) });
     // A definition change (new URL, new port, etc.) deserves a fresh
     // verdict rather than waiting out the old schedule.
     monitor.nextCheckAt = new Date();

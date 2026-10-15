@@ -79,6 +79,39 @@ function formatNumber(value, digits = 1) {
   return Number(value).toFixed(digits);
 }
 
+function formatStorageGb(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '—';
+  return `${Number(value).toFixed(1)} GB`;
+}
+
+function formatStorageLabel(device) {
+  const name = String(device?.name || '').trim().replace(/^\/dev\//, '');
+  const size = String(device?.size || '').trim();
+  const type = String(device?.type || '').trim().toLowerCase();
+
+  const storageType =
+    type === 'ssd' || type === 'nvme' || type === 'disk'
+      ? 'SSD'
+      : type === 'rom'
+        ? 'ROM'
+        : type === 'raid'
+          ? 'RAID'
+          : type === 'part'
+            ? 'Partisi'
+            : 'HDD';
+
+  const nameLabel = name
+    ? name.toLowerCase().includes('nvme')
+      ? 'NVMe'
+      : name.toLowerCase().includes('sd') || name.toLowerCase().includes('vd') || name.toLowerCase().includes('hd')
+        ? ''
+        : name
+    : '';
+
+  const pieces = [storageType, nameLabel, size].filter(Boolean);
+  return pieces.length ? pieces.join(' ') : 'Storage';
+}
+
 function StatCard({ label, value, color }) {
   return (
     <Paper variant="outlined" sx={{ px: 2.5, py: 2, flex: '1 1 180px', minWidth: 160 }}>
@@ -356,7 +389,38 @@ export default function AgentDetail() {
 
   const status = agent ? agentStatus(agent) : 'pending';
   const current = agent?.currentMetrics || {};
+  const hardware = agent?.hardware || {};
   const totalLogPages = Math.max(1, Math.ceil(logTotal / 100));
+
+  const storageSummary = useMemo(() => {
+    const samples = metrics.filter((m) => Number.isFinite(Number(m.diskUsedGb))).map((m) => Number(m.diskUsedGb));
+    if (samples.length === 0) {
+      return { day: null, month: null, year: null, latest: current.diskUsedGb ?? null };
+    }
+
+    const dayMs = 24 * 60 * 60 * 1000;
+    const ranges = [
+      { label: 'day', ms: dayMs },
+      { label: 'month', ms: 30 * dayMs },
+      { label: 'year', ms: 365 * dayMs },
+    ];
+
+    const next = {};
+    for (const range of ranges) {
+      const subset = metrics.filter((m) => {
+        const when = new Date(m.recordedAt).getTime();
+        return !Number.isNaN(when) && when >= Date.now() - range.ms && Number.isFinite(Number(m.diskUsedGb));
+      });
+      if (subset.length === 0) {
+        next[range.label] = null;
+        continue;
+      }
+      const values = subset.map((m) => Number(m.diskUsedGb));
+      next[range.label] = values.reduce((sum, value) => sum + value, 0) / values.length;
+    }
+
+    return { ...next, latest: current.diskUsedGb ?? samples[samples.length - 1] ?? null };
+  }, [current.diskUsedGb, metrics]);
 
   const loadAverageLabel = useMemo(() => {
     const la = current.loadAverage;
@@ -406,6 +470,13 @@ export default function AgentDetail() {
             {agent.distro ? ` · ${agent.distro}${agent.distroVersion ? ` ${agent.distroVersion}` : ''}` : ''}
             {agent.ipAddress ? ` · ${agent.ipAddress}` : ''}
           </Typography>
+          {agent.tags?.length ? (
+            <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap', gap: 1 }}>
+              {agent.tags.map((tag) => (
+                <Chip key={tag} label={`#${tag}`} size="small" variant="outlined" />
+              ))}
+            </Stack>
+          ) : null}
         </Box>
         <Stack direction="row" spacing={1}>
           <Tooltip title={agent.isActive ? 'Nonaktifkan' : 'Aktifkan'}>
@@ -448,6 +519,58 @@ export default function AgentDetail() {
         <StatCard label="Rata-rata Memori" value={formatPercent(stats.avg?.memoryPercent)} />
         <StatCard label="Rata-rata Disk" value={formatPercent(stats.avg?.diskPercent)} />
       </Stack>
+
+      <Typography variant="h6" sx={{ mb: 1.5 }}>
+        Perangkat & Penyimpanan
+      </Typography>
+      <Paper variant="outlined" sx={{ mb: 3, p: 2 }}>
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ flexWrap: 'wrap', gap: 2 }}>
+          <Box sx={{ flex: 1, minWidth: 180 }}>
+            <Typography variant="caption" color="text.secondary">CPU</Typography>
+            <Typography variant="body1" fontWeight={600}>{hardware.cpuModel || agent.distro || '—'}</Typography>
+            <Typography variant="body2" color="text.secondary">
+              {hardware.cpuCores ? `${hardware.cpuCores} core` : 'CPU terdeteksi'}
+            </Typography>
+          </Box>
+          <Box sx={{ flex: 1, minWidth: 180 }}>
+            <Typography variant="caption" color="text.secondary">Memori</Typography>
+            <Typography variant="body1" fontWeight={600}>{hardware.memoryTotalMb ? `${(hardware.memoryTotalMb / 1024).toFixed(1)} GB` : 'Belum terdeteksi'}</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Pemakaian saat ini: {formatPercent(current.memoryPercent)}
+            </Typography>
+          </Box>
+          <Box sx={{ flex: 1, minWidth: 180 }}>
+            <Typography variant="caption" color="text.secondary">Penyimpanan</Typography>
+            <Typography variant="body1" fontWeight={600}>{hardware.diskTotalGb ? `${Number(hardware.diskTotalGb).toFixed(1)} GB` : formatStorageGb(current.diskUsedGb)}</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Terpakai sekarang: {formatStorageGb(current.diskUsedGb)}
+            </Typography>
+          </Box>
+        </Stack>
+        {(hardware.storage?.length || 0) > 0 && (
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>HDD / SSD</Typography>
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ flexWrap: 'wrap', gap: 2 }}>
+              {hardware.storage.slice(0, 4).map((device) => (
+                <Box key={`${device.name}-${device.size}`} sx={{ flex: '1 1 180px', p: 1.5, borderRadius: 2, bgcolor: 'action.hover' }}>
+                  <Typography variant="body2" fontWeight={600}>{formatStorageLabel(device)}</Typography>
+                  <Typography variant="caption" color="text.secondary">{device.name || 'Disk'} · {device.size || 'ukuran tidak tersedia'}</Typography>
+                </Box>
+              ))}
+            </Stack>
+          </Box>
+        )}
+      </Paper>
+
+      <Paper variant="outlined" sx={{ mb: 3, p: 2 }}>
+        <Typography variant="subtitle2" sx={{ mb: 1.5 }}>Pemakaian HDD / SSD (GB)</Typography>
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ flexWrap: 'wrap', gap: 2 }}>
+          <StatCard label="Hari ini" value={storageSummary.day == null ? '—' : formatNumber(storageSummary.day, 1)} />
+          <StatCard label="Bulan ini" value={storageSummary.month == null ? '—' : formatNumber(storageSummary.month, 1)} />
+          <StatCard label="Tahun ini" value={storageSummary.year == null ? '—' : formatNumber(storageSummary.year, 1)} />
+          <StatCard label="Terakhir" value={storageSummary.latest == null ? '—' : formatNumber(storageSummary.latest, 1)} />
+        </Stack>
+      </Paper>
 
       <Typography variant="h6" sx={{ mb: 1.5 }}>
         Status Service

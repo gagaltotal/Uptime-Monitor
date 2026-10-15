@@ -38,7 +38,7 @@ readonly LOG_MAX_BYTES=1900   # keep well under the API's 2000-char limit
 UPTIME_SERVER_URL="${UPTIME_SERVER_URL:-}"
 UPTIME_AGENT_TOKEN="${UPTIME_AGENT_TOKEN:-}"
 UPTIME_INTERVAL="${UPTIME_INTERVAL:-60}"
-UPTIME_SEND_LOGS="${UPTIME_SEND_LOGS:-false}"
+UPTIME_SEND_LOGS="${UPTIME_SEND_LOGS:-true}"
 
 CONF_FILE="${UPTIME_AGENT_CONF:-$DEFAULT_CONF}"
 if [ -r "$CONF_FILE" ]; then
@@ -94,6 +94,55 @@ bytes_to_mb() { printf '%s' "$(( ${1:-0} / 1048576 ))"; }
 # kb_to_gb <kilobytes> (one decimal place)
 kb_to_gb() {
   awk -v kb="${1:-0}" 'BEGIN { printf "%.1f", kb / 1048576 }'
+}
+
+# ---------------------------------------------------------------------------
+# Hardware discovery
+# ---------------------------------------------------------------------------
+collect_hardware() {
+  CPU_MODEL="$(awk -F': ' '/^model name/ {print $2; exit}' /proc/cpuinfo 2>/dev/null | trim)"
+  [ -z "$CPU_MODEL" ] && CPU_MODEL="$(awk -F': ' '/^Hardware/ {print $2; exit}' /proc/cpuinfo 2>/dev/null | trim)"
+  [ -z "$CPU_MODEL" ] && CPU_MODEL="$(uname -m 2>/dev/null || echo unknown)"
+
+  CPU_CORES="$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || awk '/^processor/ {count++} END {print count+0}' /proc/cpuinfo 2>/dev/null)"
+  CPU_CORES="$(num_or_zero "$CPU_CORES")"
+
+  local total_kb
+  total_kb="$(awk '/^MemTotal:/{print $2; exit}' /proc/meminfo 2>/dev/null)"
+  total_kb="$(num_or_zero "$total_kb")"
+  HARDWARE_MEMORY_TOTAL_MB=$(( total_kb / 1024 ))
+
+  if [ -z "$DISK_TOTAL_GB" ] || [ "$DISK_TOTAL_GB" = "0" ]; then
+    DISK_TOTAL_GB="$(kb_to_gb "$(df -Pk / 2>/dev/null | awk 'NR==2 {print $2}')")"
+  fi
+}
+
+build_storage_json() {
+  local first=1
+  printf '['
+  if have lsblk; then
+    while IFS='|' read -r name size type; do
+      [ -z "$name" ] && continue
+      if [ "$first" -eq 0 ]; then printf ','; fi
+      first=0
+      printf '{"name":"%s","size":"%s","type":"%s"}' \
+        "$(json_escape "$name")" \
+        "$(json_escape "$size")" \
+        "$(json_escape "$type")"
+    done <<EOF
+$(lsblk -d -n -o NAME,SIZE,TYPE 2>/dev/null | awk 'NF>=3 {print $1"|"$2"|"$3}')
+EOF
+  fi
+  printf ']'
+}
+
+build_hardware_json() {
+  printf '{"cpuModel":"%s","cpuCores":%s,"memoryTotalMb":%s,"diskTotalGb":%s,"storage":%s}' \
+    "$(json_escape "$CPU_MODEL")" \
+    "$(num_or_zero "$CPU_CORES")" \
+    "$(num_or_zero "$HARDWARE_MEMORY_TOTAL_MB")" \
+    "$(num_or_zero "$DISK_TOTAL_GB")" \
+    "$(build_storage_json)"
 }
 
 # ---------------------------------------------------------------------------
@@ -334,6 +383,7 @@ EOF
 # ---------------------------------------------------------------------------
 collect_all() {
   detect_os
+  collect_hardware
   CPU_PERCENT="$(collect_cpu_percent)"
   collect_memory
   collect_disk
@@ -354,7 +404,7 @@ build_os_json() {
 }
 
 build_report_json() {
-  printf '{"metrics":{"cpuPercent":%s,"memoryPercent":%s,"memoryUsedMb":%s,"memoryTotalMb":%s,"diskPercent":%s,"diskUsedGb":%s,"diskTotalGb":%s,"loadAverage":[%s,%s,%s],"uptimeSeconds":%s,"processCount":%s},"osInfo":%s,"services":%s,"message":"%s"}' \
+  printf '{"metrics":{"cpuPercent":%s,"memoryPercent":%s,"memoryUsedMb":%s,"memoryTotalMb":%s,"diskPercent":%s,"diskUsedGb":%s,"diskTotalGb":%s,"loadAverage":[%s,%s,%s],"uptimeSeconds":%s,"processCount":%s},"hardware":%s,"osInfo":%s,"services":%s,"message":"%s"}' \
     "$(num_or_zero "$CPU_PERCENT")" \
     "$(num_or_zero "$MEM_PERCENT")" \
     "$(num_or_zero "$MEM_USED_MB")" \
@@ -367,6 +417,7 @@ build_report_json() {
     "$(num_or_zero "$LOAD_15")" \
     "$(num_or_zero "$UPTIME_SECONDS")" \
     "$(num_or_zero "$PROCESS_COUNT")" \
+    "$(build_hardware_json)" \
     "$(build_os_json)" \
     "$(build_services_json)" \
     "$(json_escape "${UPTIME_MESSAGE:-}")"
@@ -432,7 +483,13 @@ send_log() {
 run_once() {
   collect_all
   local payload; payload="$(build_report_json)"
-  send_report "$payload"
+  if send_report "$payload"; then
+    if [ "$UPTIME_SEND_LOGS" = "true" ]; then
+      send_log "info" "agent" "Laporan metrik terkirim: CPU ${CPU_PERCENT}% | RAM ${MEM_PERCENT}% | Disk ${DISK_PERCENT}% | ${OS_HOSTNAME}"
+    fi
+    return 0
+  fi
+  return 1
 }
 
 run_print() {
@@ -546,6 +603,9 @@ uninstall_agent() {
 
 run_loop() {
   log "Agent dimulai — interval ${UPTIME_INTERVAL}s, server ${UPTIME_SERVER_URL:-<unset>}."
+  if [ "$UPTIME_SEND_LOGS" = "true" ]; then
+    send_log "info" "agent" "Agent dimulai pada ${OS_HOSTNAME:-unknown} (${OS_DISTRO:-Linux}) — interval ${UPTIME_INTERVAL}s"
+  fi
 
   local failures=0
   while true; do

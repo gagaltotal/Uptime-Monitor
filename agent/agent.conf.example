@@ -17,8 +17,8 @@ UPTIME_AGENT_TOKEN="agt_replace_me"
 # agent's `interval` value in the dashboard.
 UPTIME_INTERVAL=60
 
-# Set to "true" to also stream connection-failure log lines to the API.
-UPTIME_SEND_LOGS="false"
+# Set to "true" to stream startup/report logs to the API for the dashboard.
+UPTIME_SEND_LOGS="true"
 
 # Optional HTTP timeout (seconds).
 UPTIME_HTTP_TIMEOUT=15

@@ -69,6 +69,15 @@ export default function MonitorRow({ monitor, recentHeartbeats = [], onEdit, onD
         >
           {targetLabel(monitor)}
         </Typography>
+        {monitor.tags?.length ? (
+          <Stack direction="row" spacing={0.5} sx={{ mt: 0.5, flexWrap: 'wrap', rowGap: 0.5 }}>
+            {monitor.tags.slice(0, 3).map((tag) => (
+              <Typography key={tag} variant="caption" sx={{ px: 0.75, py: 0.2, borderRadius: 999, bgcolor: 'action.hover', color: 'text.secondary' }}>
+                #{tag}
+              </Typography>
+            ))}
+          </Stack>
+        ) : null}
       </Box>
 
       <Box sx={{ flex: 1, minWidth: 0, display: { xs: 'none', md: 'block' } }}>

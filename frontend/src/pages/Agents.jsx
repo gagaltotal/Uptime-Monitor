@@ -181,6 +181,13 @@ function AgentRow({ agent, onEdit, onDelete, onToggle, onRegenerateToken }) {
           {targetLabel(agent)}
           {agent.distro ? ` · ${agent.distro}` : ''}
         </Typography>
+        {agent.tags?.length ? (
+          <Stack direction="row" spacing={0.5} sx={{ mt: 0.5, flexWrap: 'wrap', rowGap: 0.5 }}>
+            {agent.tags.slice(0, 3).map((tag) => (
+              <Chip key={tag} label={`#${tag}`} size="small" variant="outlined" sx={{ height: 20, fontSize: '0.65rem' }} />
+            ))}
+          </Stack>
+        ) : null}
       </Box>
       <Box sx={{ width: 140, display: { xs: 'none', md: 'block' } }}>
         <Typography variant="caption" color="text.secondary" display="block">
@@ -725,13 +732,17 @@ export default function Agents() {
   }, [agents]);
 
   const handleCreateOrUpdate = async (payload) => {
+    const normalized = {
+      ...payload,
+      tags: Array.from(new Set((payload.tags || []).map((tag) => String(tag).trim()).filter(Boolean))).slice(0, 20),
+    };
     if (editingAgent) {
-      const res = await api.put(`/agents/${editingAgent._id}`, payload);
+      const res = await api.put(`/agents/${editingAgent._id}`, normalized);
       const updated = res.data.agent;
       setAgents((prev) => prev.map((a) => (a._id === updated._id ? updated : a)));
       enqueueSnackbar('Agent diperbarui.', { variant: 'success' });
     } else {
-      const res = await api.post('/agents', payload);
+      const res = await api.post('/agents', normalized);
       const created = res.data.agent;
       setAgents((prev) => [created, ...(prev || [])]);
       setIssuedToken(res.data.token);
