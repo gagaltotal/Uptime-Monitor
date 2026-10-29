@@ -46,6 +46,10 @@ if [ -r "$CONF_FILE" ]; then
   . "$CONF_FILE"
 fi
 
+# Allow the config file to pin an explicit disk total (e.g. a quota/overlay) while
+# guaranteeing the variable always exists under `set -u`.
+DISK_TOTAL_GB="${DISK_TOTAL_GB:-}"
+
 # ---------------------------------------------------------------------------
 # Logging helpers (to stderr so stdout stays clean for --print)
 # ---------------------------------------------------------------------------
@@ -59,19 +63,25 @@ error() { printf '%s [%s] %s\n' "$(ts)" "ERROR" "$*" >&2; }
 # Small utilities
 # ---------------------------------------------------------------------------
 # have <command> — portable "command exists" check
-have() { command -v "$1" >/dev/null 2>&1; }
+have() { command -v "${1:-}" >/dev/null 2>&1; }
 
-# trim <string> — strip leading/trailing whitespace
+# trim [string] — strip leading/trailing whitespace.
+# Reads from stdin when called without arguments, so `... | trim` also works.
 trim() {
-  local s="$1"
+  local s
+  if [ "$#" -gt 0 ]; then
+    s="$1"
+  else
+    s="$(cat)"
+  fi
   s="${s#"${s%%[![:space:]]*}"}"
   s="${s%"${s##*[![:space:]]}"}"
   printf '%s' "$s"
 }
 
-# json_escape <string> — escape a value for safe inclusion inside a JSON string
+# json_escape [string] — escape a value for safe inclusion inside a JSON string
 json_escape() {
-  local s="$1"
+  local s="${1:-}"
   s="${s//\\/\\\\}"     # backslash
   s="${s//\"/\\\"}"     # double quote
   s="${s//$'\n'/ }"     # newline -> space
@@ -80,9 +90,9 @@ json_escape() {
   printf '%s' "$s"
 }
 
-# num_or_zero <value> — emit the value only if it is numeric, else 0
+# num_or_zero [value] — emit the value only if it is numeric, else 0
 num_or_zero() {
-  case "$1" in
+  case "${1:-}" in
     ''|*[!0-9.]*) printf '0' ;;
     *) printf '%s' "$1" ;;
   esac
@@ -112,7 +122,7 @@ collect_hardware() {
   total_kb="$(num_or_zero "$total_kb")"
   HARDWARE_MEMORY_TOTAL_MB=$(( total_kb / 1024 ))
 
-  if [ -z "$DISK_TOTAL_GB" ] || [ "$DISK_TOTAL_GB" = "0" ]; then
+  if [ -z "${DISK_TOTAL_GB:-}" ] || [ "${DISK_TOTAL_GB:-0}" = "0" ]; then
     DISK_TOTAL_GB="$(kb_to_gb "$(df -Pk / 2>/dev/null | awk 'NR==2 {print $2}')")"
   fi
 }
