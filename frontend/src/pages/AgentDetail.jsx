@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Box,
   Button,
@@ -42,6 +42,9 @@ const LOG_LEVELS = [
   { value: 'warn', label: 'Warning' },
   { value: 'error', label: 'Error' },
 ];
+
+// Jumlah log per halaman agar daftar tidak memanjang ke bawah.
+const LOG_PAGE_SIZE = 10;
 
 const LEVEL_COLOR = {
   debug: 'text.secondary',
@@ -185,6 +188,82 @@ function MetricChart({ title, metrics, field, unit, color }) {
   );
 }
 
+function LogPagination({ page, totalPages, total, pageSize, onChange }) {
+  const pageNumbers = useMemo(() => {
+    const windowSize = 5;
+    const end = Math.min(totalPages, Math.max(page + Math.floor(windowSize / 2), windowSize));
+    const start = Math.max(1, end - windowSize + 1);
+    const pages = [];
+    for (let p = start; p <= Math.min(end, totalPages); p += 1) pages.push(p);
+    return pages;
+  }, [page, totalPages]);
+
+  if (total === 0) return null;
+
+  const hasMultiplePages = totalPages > 1;
+  const firstItem = (page - 1) * pageSize + 1;
+  const lastItem = Math.min(page * pageSize, total);
+
+  return (
+    <Stack spacing={1.5} sx={{ mb: 2 }}>
+      <Typography variant="caption" color="text.secondary" textAlign="center">
+        Menampilkan {firstItem}–{lastItem} dari {total} log
+      </Typography>
+      {hasMultiplePages && (
+        <Stack
+          direction="row"
+          spacing={1}
+          alignItems="center"
+          justifyContent="center"
+          sx={{ flexWrap: 'wrap', gap: 1 }}
+        >
+          <Button
+            size="small"
+            variant="outlined"
+            disabled={page <= 1}
+            onClick={() => onChange(Math.max(1, page - 1))}
+            sx={{ flex: { xs: '1 1 40%', sm: '0 0 auto' } }}
+          >
+            Sebelumnya
+          </Button>
+
+          <Box sx={{ display: { xs: 'none', sm: 'flex' }, gap: 0.5 }}>
+            {pageNumbers.map((p) => (
+              <Button
+                key={p}
+                size="small"
+                variant={p === page ? 'contained' : 'text'}
+                onClick={() => onChange(p)}
+                sx={{ minWidth: 40 }}
+              >
+                {p}
+              </Button>
+            ))}
+          </Box>
+
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ display: { xs: 'block', sm: 'none' }, px: 0.5 }}
+          >
+            {page} / {totalPages}
+          </Typography>
+
+          <Button
+            size="small"
+            variant="outlined"
+            disabled={page >= totalPages}
+            onClick={() => onChange(Math.min(totalPages, page + 1))}
+            sx={{ flex: { xs: '1 1 40%', sm: '0 0 auto' } }}
+          >
+            Berikutnya
+          </Button>
+        </Stack>
+      )}
+    </Stack>
+  );
+}
+
 function IncidentRow({ incident }) {
   const start = new Date(incident.startedAt);
   let durationLabel = 'Sedang berlangsung';
@@ -258,6 +337,15 @@ export default function AgentDetail() {
   const [tokenOpen, setTokenOpen] = useState(false);
   const [issuedToken, setIssuedToken] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const logSectionRef = useRef(null);
+  const logPageInitialized = useRef(false);
+  const logPageRef = useRef(logPage);
+  const logLevelRef = useRef(logLevel);
+
+  useEffect(() => {
+    logPageRef.current = logPage;
+    logLevelRef.current = logLevel;
+  }, [logPage, logLevel]);
 
   const loadAll = useCallback(async () => {
     try {
@@ -291,7 +379,7 @@ export default function AgentDetail() {
 
   const loadLogs = useCallback(async () => {
     try {
-      const params = new URLSearchParams({ page: String(logPage), limit: '100' });
+      const params = new URLSearchParams({ page: String(logPage), limit: String(LOG_PAGE_SIZE) });
       if (logLevel) params.set('level', logLevel);
       const res = await api.get(`/agents/${id}/logs?${params.toString()}`);
       setLogs(res.data.logs);
@@ -313,6 +401,15 @@ export default function AgentDetail() {
   useEffect(() => {
     loadLogs();
   }, [loadLogs]);
+
+  // Kembali ke awal daftar log setiap kali halaman diganti.
+  useEffect(() => {
+    if (!logPageInitialized.current) {
+      logPageInitialized.current = true;
+      return;
+    }
+    logSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [logPage]);
 
   useSocketEvent('agent:update', (updated) => {
     if (updated?._id === id) setAgent((prev) => ({ ...prev, ...updated }));
@@ -343,8 +440,14 @@ export default function AgentDetail() {
 
   useSocketEvent('agent:log', ({ agentId, log }) => {
     if (agentId !== id) return;
-    setLogs((prev) => [log, ...prev].slice(0, 100));
-    setLogTotal((prev) => prev + 1);
+    const activeLevel = logLevelRef.current;
+    const activePage = logPageRef.current;
+    const matchesLevel = !activeLevel || log?.level === activeLevel;
+    if (matchesLevel) setLogTotal((prev) => prev + 1);
+    // Hanya sisipkan log baru bila sedang di halaman pertama agar daftar
+    // tetap konsisten dengan pagination server-side.
+    if (activePage !== 1 || !matchesLevel) return;
+    setLogs((prev) => [log, ...prev].slice(0, LOG_PAGE_SIZE));
   });
 
   const handleToggle = async () => {
@@ -390,7 +493,13 @@ export default function AgentDetail() {
   const status = agent ? agentStatus(agent) : 'pending';
   const current = agent?.currentMetrics || {};
   const hardware = agent?.hardware || {};
-  const totalLogPages = Math.max(1, Math.ceil(logTotal / 100));
+  const totalLogPages = Math.max(1, Math.ceil(logTotal / LOG_PAGE_SIZE));
+
+  // Jaga agar halaman aktif tidak melewati jumlah halaman yang tersedia.
+  useEffect(() => {
+    if (logPage > totalLogPages) setLogPage(totalLogPages);
+  }, [logPage, totalLogPages]);
+
 
   const storageSummary = useMemo(() => {
     const samples = metrics.filter((m) => Number.isFinite(Number(m.diskUsedGb))).map((m) => Number(m.diskUsedGb));
@@ -720,98 +829,98 @@ export default function AgentDetail() {
         )}
       </Paper>
 
-      <Stack
-        direction="row"
-        justifyContent="space-between"
-        alignItems="center"
-        sx={{ mb: 1.5 }}
-      >
-        <Typography variant="h6">Log Agent</Typography>
-        <TextField
-          select
-          size="small"
-          value={logLevel}
-          onChange={(e) => {
-            setLogLevel(e.target.value);
-            setLogPage(1);
-          }}
-          sx={{ minWidth: 160 }}
-          SelectProps={{ displayEmpty: true }}
+      <Box ref={logSectionRef} sx={{ scrollMarginTop: 16 }}>
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          justifyContent="space-between"
+          alignItems={{ xs: 'stretch', sm: 'center' }}
+          spacing={1.5}
+          sx={{ mb: 1.5 }}
         >
-          {LOG_LEVELS.map((l) => (
-            <MenuItem key={l.value} value={l.value}>
-              {l.label}
-            </MenuItem>
-          ))}
-        </TextField>
-      </Stack>
-      <Paper variant="outlined" sx={{ mb: 2 }}>
-        {logs.length === 0 ? (
-          <Box sx={{ textAlign: 'center', py: 4 }}>
-            <Typography color="text.secondary">Belum ada log.</Typography>
-          </Box>
-        ) : (
-          logs.map((log) => (
-            <Box
-              key={log._id}
-              sx={{
-                px: 2,
-                py: 1,
-                borderBottom: (t) => `1px solid ${t.palette.surface.line}`,
-                '&:last-of-type': { borderBottom: 'none' },
-              }}
-            >
-              <Stack direction="row" spacing={1} alignItems="center">
-                <Chip
-                  size="small"
-                  label={log.level.toUpperCase()}
+          <Typography variant="h6">Log Agent</Typography>
+          <TextField
+            select
+            size="small"
+            value={logLevel}
+            onChange={(e) => {
+              setLogLevel(e.target.value);
+              setLogPage(1);
+            }}
+            sx={{ minWidth: { xs: '100%', sm: 160 }, width: { xs: '100%', sm: 'auto' } }}
+            SelectProps={{ displayEmpty: true }}
+          >
+            {LOG_LEVELS.map((l) => (
+              <MenuItem key={l.value} value={l.value}>
+                {l.label}
+              </MenuItem>
+            ))}
+          </TextField>
+        </Stack>
+        <Paper variant="outlined" sx={{ mb: 2, overflow: 'hidden' }}>
+          {logs.length === 0 ? (
+            <Box sx={{ textAlign: 'center', py: 4 }}>
+              <Typography color="text.secondary">Belum ada log.</Typography>
+            </Box>
+          ) : (
+            logs.map((log) => (
+              <Box
+                key={log._id}
+                sx={{
+                  px: { xs: 1.5, sm: 2 },
+                  py: 1,
+                  borderBottom: (t) => `1px solid ${t.palette.surface.line}`,
+                  '&:last-of-type': { borderBottom: 'none' },
+                }}
+              >
+                <Stack
+                  direction="row"
+                  spacing={1}
+                  alignItems="center"
+                  sx={{ flexWrap: 'wrap', rowGap: 0.5, mb: 0.25 }}
+                >
+                  <Chip
+                    size="small"
+                    label={log.level.toUpperCase()}
+                    sx={{
+                      fontFamily: (t) => t.typography.fontFamilyMono,
+                      fontSize: '0.6rem',
+                      color: LEVEL_COLOR[log.level] || 'text.secondary',
+                    }}
+                  />
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ fontFamily: (t) => t.typography.fontFamilyMono, minWidth: 0 }}
+                  >
+                    {new Date(log.loggedAt).toLocaleString('id-ID')}
+                    {log.source ? ` · ${log.source}` : ''}
+                  </Typography>
+                </Stack>
+                <Typography
+                  variant="body2"
                   sx={{
                     fontFamily: (t) => t.typography.fontFamilyMono,
-                    fontSize: '0.6rem',
-                    color: LEVEL_COLOR[log.level] || 'text.secondary',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    overflowWrap: 'anywhere',
+                    fontSize: { xs: '0.78rem', sm: '0.85rem' },
                   }}
-                />
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  sx={{ fontFamily: (t) => t.typography.fontFamilyMono }}
                 >
-                  {new Date(log.loggedAt).toLocaleString('id-ID')}
-                  {log.source ? ` · ${log.source}` : ''}
+                  {log.message}
                 </Typography>
-              </Stack>
-              <Typography
-                variant="body2"
-                sx={{ fontFamily: (t) => t.typography.fontFamilyMono, whiteSpace: 'pre-wrap' }}
-              >
-                {log.message}
-              </Typography>
-            </Box>
-          ))
-        )}
-      </Paper>
+              </Box>
+            ))
+          )}
+        </Paper>
 
-      {logTotal > 100 && (
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="flex-end">
-          <Button
-            size="small"
-            disabled={logPage <= 1}
-            onClick={() => setLogPage((p) => Math.max(1, p - 1))}
-          >
-            Sebelumnya
-          </Button>
-          <Typography variant="caption" color="text.secondary">
-            Halaman {logPage} / {totalLogPages}
-          </Typography>
-          <Button
-            size="small"
-            disabled={logPage >= totalLogPages}
-            onClick={() => setLogPage((p) => p + 1)}
-          >
-            Berikutnya
-          </Button>
-        </Stack>
-      )}
+        <LogPagination
+          page={Math.min(logPage, totalLogPages)}
+          totalPages={totalLogPages}
+          total={logTotal}
+          pageSize={LOG_PAGE_SIZE}
+          onChange={setLogPage}
+        />
+      </Box>
 
       <AgentFormDialog
         open={editOpen}
