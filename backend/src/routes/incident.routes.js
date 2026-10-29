@@ -1,22 +1,75 @@
 const express = require('express');
 const Incident = require('../models/Incident');
 const AgentIncident = require('../models/AgentIncident');
+const Monitor = require('../models/Monitor');
+const Agent = require('../models/Agent');
 const { protect } = require('../middleware/auth');
 const { catchAsync } = require('../utils/helpers');
 
 const router = express.Router();
 router.use(protect);
 
-// GET /api/incidents?status=ongoing|resolved&page=1&limit=20
+const SOURCES = ['monitors', 'agents'];
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// GET /api/incidents?source=monitors|agents&status=ongoing|resolved&q=&page=1&limit=20
 router.get(
   '/',
   catchAsync(async (req, res) => {
+    const source = SOURCES.includes(req.query.source) ? req.query.source : 'monitors';
+
     const filter = {};
     if (['ongoing', 'resolved'].includes(req.query.status)) {
       filter.status = req.query.status;
     }
+
     const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
+
+    // Pencarian bebas: nama target (monitor/agent), host/url, jenis, atau penyebab.
+    const search = String(req.query.q || '').trim().slice(0, 100);
+    const rx = search ? new RegExp(escapeRegex(search), 'i') : null;
+
+    if (source === 'agents') {
+      if (rx) {
+        const agentIds = await Agent.find({
+          $or: [{ name: rx }, { hostname: rx }, { ipAddress: rx }, { distro: rx }],
+        })
+          .select('_id')
+          .lean();
+        filter.$or = [
+          { agent: { $in: agentIds.map((a) => a._id) } },
+          { cause: rx },
+          { type: rx },
+        ];
+      }
+
+      const [incidents, total] = await Promise.all([
+        AgentIncident.find(filter)
+          .sort({ startedAt: -1 })
+          .skip((page - 1) * limit)
+          .limit(limit)
+          .populate('agent', 'name hostname ipAddress distro'),
+        AgentIncident.countDocuments(filter),
+      ]);
+
+      return res.json({ source, incidents, total, page, pages: Math.ceil(total / limit) });
+    }
+
+    if (rx) {
+      const monitorIds = await Monitor.find({
+        $or: [{ name: rx }, { url: rx }, { host: rx }],
+      })
+        .select('_id')
+        .lean();
+      filter.$or = [
+        { monitor: { $in: monitorIds.map((m) => m._id) } },
+        { cause: rx },
+      ];
+    }
 
     const [incidents, total] = await Promise.all([
       Incident.find(filter)
@@ -27,7 +80,7 @@ router.get(
       Incident.countDocuments(filter),
     ]);
 
-    res.json({ incidents, total, page, pages: Math.ceil(total / limit) });
+    res.json({ source, incidents, total, page, pages: Math.ceil(total / limit) });
   })
 );
 

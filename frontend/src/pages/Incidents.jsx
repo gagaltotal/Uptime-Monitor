@@ -9,18 +9,21 @@ import {
   DialogContent,
   DialogTitle,
   FormControl,
+  InputAdornment,
   InputLabel,
   MenuItem,
   Pagination,
   Paper,
   Select,
   Stack,
+  TextField,
   ToggleButton,
   ToggleButtonGroup,
   Typography,
 } from '@mui/material';
 import ReportRoundedIcon from '@mui/icons-material/ReportRounded';
 import PrintRoundedIcon from '@mui/icons-material/PrintRounded';
+import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import { useNavigate } from 'react-router-dom';
 import { useSnackbar } from 'notistack';
 import api from '../api/axios';
@@ -57,6 +60,159 @@ function agentTargetLabel(agent) {
   return [agent.hostname, agent.ipAddress].filter(Boolean).join(' · ') || agent.distro || '';
 }
 
+const MONITOR_COLUMNS = '1.6fr 2fr 0.9fr 1.4fr 1fr';
+const AGENT_COLUMNS = '1.2fr 1.4fr 1.2fr 0.8fr 1.1fr 1.3fr 0.9fr';
+
+function severityLabel(severity) {
+  return severity === 'critical' ? 'Critical' : 'Warning';
+}
+
+function StatusChip({ status }) {
+  return (
+    <Chip
+      size="small"
+      label={status === 'ongoing' ? 'BERLANGSUNG' : 'SELESAI'}
+      color={status === 'ongoing' ? 'error' : 'default'}
+      sx={{ fontFamily: (t) => t.typography.fontFamilyMono, flexShrink: 0 }}
+    />
+  );
+}
+
+function IncidentRow({ incident, source, onOpen }) {
+  const isAgent = source === 'agents';
+  const target = isAgent ? incident.agent : incident.monitor;
+  const columns = isAgent ? AGENT_COLUMNS : MONITOR_COLUMNS;
+  const targetText = isAgent ? agentTargetLabel(target) : targetLabel(target);
+  const title = target?.name || (isAgent ? 'Agent telah dihapus' : 'Monitor telah dihapus');
+  const startedLabel = new Date(incident.startedAt).toLocaleString('id-ID');
+  const cause = incident.cause || '';
+
+  return (
+    <Box
+      onClick={onOpen}
+      sx={{
+        px: { xs: 2, sm: 2.5 },
+        py: { xs: 1.5, md: 1.75 },
+        borderBottom: '1px solid',
+        borderColor: 'divider',
+        cursor: target ? 'pointer' : 'default',
+        '&:hover': { bgcolor: 'action.hover' },
+        '&:last-of-type': { borderBottom: 'none' },
+        // Desktop/tablet: baris sejajar kolom
+        display: { xs: 'block', md: 'grid' },
+        gridTemplateColumns: { md: columns },
+        alignItems: 'center',
+        gap: { md: 2 },
+      }}
+    >
+      {/* Mobile: judul + status di baris pertama */}
+      <Stack
+        direction="row"
+        spacing={1}
+        alignItems="center"
+        sx={{ display: { xs: 'flex', md: 'none' }, mb: 0.75, flexWrap: 'wrap', rowGap: 0.5 }}
+      >
+        <StatusChip status={incident.status} />
+        <Typography variant="body2" fontWeight={600} sx={{ minWidth: 0, wordBreak: 'break-word' }}>
+          {title}
+        </Typography>
+      </Stack>
+
+      {/* Kolom nama (desktop) */}
+      <Box sx={{ display: { xs: 'none', md: 'block' }, minWidth: 0 }}>
+        <Typography variant="body2" fontWeight={600} noWrap>
+          {title}
+        </Typography>
+      </Box>
+
+      {/* Target */}
+      <Typography
+        variant="caption"
+        color="text.secondary"
+        title={targetText || undefined}
+        sx={{
+          display: 'block',
+          fontFamily: (t) => t.typography.fontFamilyMono,
+          wordBreak: 'break-word',
+          // Desktop: satu baris dengan ellipsis agar kolom tetap rapi.
+          md: {
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          },
+        }}
+      >
+        {targetText || '—'}
+      </Typography>
+
+      {/* Jenis insiden agent (mobile & desktop) */}
+      {isAgent && (
+        <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mt: { xs: 0.75, md: 0 }, flexWrap: 'wrap', rowGap: 0.5 }}>
+          <Chip
+            size="small"
+            variant="outlined"
+            label={AGENT_INCIDENT_TYPE[incident.type] || incident.type}
+            color={incident.severity === 'critical' ? 'error' : 'warning'}
+            sx={{ fontSize: '0.7rem' }}
+          />
+          <Typography variant="caption" color="text.secondary" sx={{ display: { xs: 'inline', md: 'none' } }}>
+            {severityLabel(incident.severity)}
+          </Typography>
+        </Stack>
+      )}
+
+      {/* Tingkat keparahan (desktop, kolom sendiri) */}
+      {isAgent && (
+        <Typography
+          variant="body2"
+          sx={{ display: { xs: 'none', md: 'block' }, color: incident.severity === 'critical' ? 'error.main' : 'warning.main' }}
+        >
+          {severityLabel(incident.severity)}
+        </Typography>
+      )}
+
+      {/* Status (desktop) */}
+      <Box sx={{ display: { xs: 'none', md: 'block' } }}>
+        <Chip
+          size="small"
+          label={incident.status === 'ongoing' ? 'BERLANGSUNG' : 'SELESAI'}
+          color={incident.status === 'ongoing' ? 'error' : 'default'}
+          sx={{ fontFamily: (t) => t.typography.fontFamilyMono }}
+        />
+      </Box>
+
+      {/* Waktu mulai */}
+      <Typography
+        variant="body2"
+        color="text.secondary"
+        sx={{ mt: { xs: 0.75, md: 0 }, fontSize: { xs: '0.78rem', md: undefined }, wordBreak: 'break-word' }}
+      >
+        {startedLabel}
+      </Typography>
+
+      {/* Durasi */}
+      <Typography
+        variant="caption"
+        color="text.secondary"
+        sx={{ mt: { xs: 0.25, md: 0 }, whiteSpace: 'nowrap' }}
+      >
+        Durasi: {durationLabel(incident.durationSeconds)}
+      </Typography>
+
+      {/* Cause dipakai sebagai keterangan tambahan pada insiden agent */}
+      {isAgent && cause && (
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ display: 'block', gridColumn: { md: '1 / -1' }, mt: 0.5, wordBreak: 'break-word' }}
+        >
+          {cause}
+        </Typography>
+      )}
+    </Box>
+  );
+}
+
 const MONTHS = [
   'Januari',
   'Februari',
@@ -80,9 +236,21 @@ export default function Incidents() {
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: YEAR_RANGE }, (_, i) => currentYear - i);
 
+  const [source, setSource] = useState('monitors');
   const [status, setStatus] = useState('all');
+  const [search, setSearch] = useState('');
+  const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
   const [data, setData] = useState(null);
+
+  // debounce pencarian supaya tidak memanggil API setiap ketukan
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setQuery(search.trim());
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(t);
+  }, [search]);
 
   // state cetak
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -140,16 +308,25 @@ export default function Incidents() {
   const resolvedCount = reportIncidents.filter((i) => i.status === 'resolved').length;
   const reportYear = new Date().getFullYear();
   const reportIsAgent = printMeta?.source === 'agents';
+  // Pakai sumber dari respons agar header & baris selalu konsisten saat ganti filter.
+  const listSource = data?.source || source;
 
   useEffect(() => {
-    const params = { page, limit: 20 };
+    let active = true;
+    const params = { page, limit: 20, source };
     if (status !== 'all') params.status = status;
+    if (query) params.q = query;
     api
       .get('/incidents', { params })
-      .then((r) => setData(r.data))
-      .catch(() => enqueueSnackbar('Gagal memuat daftar insiden.', { variant: 'error' }));
+      .then((r) => active && setData(r.data))
+      .catch(() => {
+        if (active) enqueueSnackbar('Gagal memuat daftar insiden.', { variant: 'error' });
+      });
+    return () => {
+      active = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, page]);
+  }, [source, status, query, page]);
 
   return (
     <Box>
@@ -166,99 +343,169 @@ export default function Incidents() {
             Insiden
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Seluruh riwayat downtime dari semua monitor Anda.
+            Seluruh riwayat downtime dari semua monitor dan insiden yang dilaporkan agent.
           </Typography>
         </Box>
         <Button
           variant="outlined"
           startIcon={<PrintRoundedIcon />}
-          onClick={() => setDialogOpen(true)}
+          onClick={() => {
+            setPrintSource(source);
+            setDialogOpen(true);
+          }}
           disabled={printing}
-          sx={{ flexShrink: 0 }}
+          sx={{ flexShrink: 0, width: { xs: '100%', sm: 'auto' } }}
         >
           {printing ? 'Menyiapkan...' : 'Cetak Laporan PDF'}
         </Button>
       </Stack>
 
-      <ToggleButtonGroup
+      <Stack
         className="no-print"
-        size="small"
-        exclusive
-        value={status}
-        onChange={(e, v) => {
-          if (v) {
-            setStatus(v);
-            setPage(1);
-          }
-        }}
-        sx={{ mb: 2, flexWrap: 'wrap' }}
+        direction={{ xs: 'column', md: 'row' }}
+        spacing={{ xs: 1.5, md: 2 }}
+        alignItems={{ xs: 'stretch', md: 'center' }}
+        justifyContent="space-between"
+        sx={{ mb: 2 }}
       >
-        <ToggleButton value="all">Semua</ToggleButton>
-        <ToggleButton value="ongoing">Berlangsung</ToggleButton>
-        <ToggleButton value="resolved">Selesai</ToggleButton>
-      </ToggleButtonGroup>
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          spacing={1.5}
+          alignItems={{ xs: 'stretch', sm: 'center' }}
+        >
+          <TextField
+            select
+            size="small"
+            label="Jenis Insiden"
+            value={source}
+            onChange={(e) => {
+              setSource(e.target.value);
+              setData(null);
+              setPage(1);
+            }}
+            sx={{ minWidth: { xs: '100%', sm: 220 } }}
+          >
+            <MenuItem value="monitors">Insiden Monitor</MenuItem>
+            <MenuItem value="agents">Insiden Agent</MenuItem>
+          </TextField>
+
+          <ToggleButtonGroup
+            size="small"
+            exclusive
+            value={status}
+            onChange={(e, v) => {
+              if (v) {
+                setStatus(v);
+                setPage(1);
+              }
+            }}
+            sx={{ flexWrap: 'wrap' }}
+          >
+            <ToggleButton value="all">Semua</ToggleButton>
+            <ToggleButton value="ongoing">Berlangsung</ToggleButton>
+            <ToggleButton value="resolved">Selesai</ToggleButton>
+          </ToggleButtonGroup>
+        </Stack>
+
+        <TextField
+          size="small"
+          placeholder={source === 'agents' ? 'Cari agent, host, jenis…' : 'Cari monitor, target…'}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          sx={{ minWidth: { xs: '100%', sm: 260 }, maxWidth: { md: 320 } }}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchRoundedIcon fontSize="small" />
+              </InputAdornment>
+            ),
+          }}
+        />
+      </Stack>
 
       <Paper variant="outlined">
+        {/* Header tabel — hanya tampil di desktop */}
+        {data && data.incidents.length > 0 && (
+          <Box
+            sx={{
+              display: { xs: 'none', md: 'grid' },
+              gridTemplateColumns: listSource === 'agents' ? AGENT_COLUMNS : MONITOR_COLUMNS,
+              gap: 2,
+              px: 2.5,
+              py: 1.25,
+              borderBottom: '1px solid',
+              borderColor: 'divider',
+              bgcolor: 'action.hover',
+            }}
+          >
+            <Typography variant="caption" fontWeight={600} color="text.secondary">
+              {listSource === 'agents' ? 'Agent' : 'Monitor'}
+            </Typography>
+            <Typography variant="caption" fontWeight={600} color="text.secondary">
+              Target
+            </Typography>
+            {listSource === 'agents' && (
+              <Typography variant="caption" fontWeight={600} color="text.secondary">
+                Jenis
+              </Typography>
+            )}
+            {listSource === 'agents' && (
+              <Typography variant="caption" fontWeight={600} color="text.secondary">
+                Tingkat
+              </Typography>
+            )}
+            <Typography variant="caption" fontWeight={600} color="text.secondary">
+              Status
+            </Typography>
+            <Typography variant="caption" fontWeight={600} color="text.secondary">
+              Mulai
+            </Typography>
+            <Typography variant="caption" fontWeight={600} color="text.secondary">
+              Durasi
+            </Typography>
+          </Box>
+        )}
+
         {!data ? (
           <Box sx={{ p: 6, textAlign: 'center' }}>
             <Typography color="text.secondary">Memuat…</Typography>
           </Box>
         ) : data.incidents.length === 0 ? (
-          <Box sx={{ p: 8, textAlign: 'center' }}>
+          <Box sx={{ p: { xs: 5, sm: 8 }, textAlign: 'center' }}>
             <ReportRoundedIcon sx={{ fontSize: 36, color: 'text.secondary', mb: 1 }} />
-            <Typography color="text.secondary">Tidak ada insiden untuk ditampilkan.</Typography>
+            <Typography color="text.secondary">
+              {query ? `Tidak ada insiden yang cocok dengan “${query}”.` : 'Tidak ada insiden untuk ditampilkan.'}
+            </Typography>
           </Box>
         ) : (
           data.incidents.map((incident) => (
-            <Box
+            <IncidentRow
               key={incident._id}
-              onClick={() => incident.monitor?._id && navigate(`/monitors/${incident.monitor._id}`)}
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 2,
-                px: 2.5,
-                py: 1.75,
-                borderBottom: '1px solid',
-                borderColor: 'divider',
-                cursor: incident.monitor?._id ? 'pointer' : 'default',
-                '&:hover': { bgcolor: 'action.hover' },
-                '&:last-of-type': { borderBottom: 'none' },
+              incident={incident}
+              source={listSource}
+              onOpen={() => {
+                if (listSource === 'agents') {
+                  if (incident.agent?._id) navigate(`/agents/${incident.agent._id}`);
+                } else if (incident.monitor?._id) {
+                  navigate(`/monitors/${incident.monitor._id}`);
+                }
               }}
-            >
-              <Chip
-                size="small"
-                label={incident.status === 'ongoing' ? 'BERLANGSUNG' : 'SELESAI'}
-                color={incident.status === 'ongoing' ? 'error' : 'default'}
-                sx={{ fontFamily: (t) => t.typography.fontFamilyMono, flexShrink: 0 }}
-              />
-              <Box sx={{ minWidth: 0, flex: 1 }}>
-                <Typography variant="body2" fontWeight={600} noWrap>
-                  {incident.monitor?.name || 'Monitor telah dihapus'}
-                </Typography>
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  noWrap
-                  sx={{ display: 'block', fontFamily: (t) => t.typography.fontFamilyMono }}
-                >
-                  {targetLabel(incident.monitor)}
-                </Typography>
-              </Box>
-              <Box sx={{ textAlign: 'right', flexShrink: 0 }}>
-                <Typography variant="body2">{new Date(incident.startedAt).toLocaleString('id-ID')}</Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {durationLabel(incident.durationSeconds)}
-                </Typography>
-              </Box>
-            </Box>
+            />
           ))
         )}
       </Paper>
 
       {data && data.pages > 1 && (
         <Stack className="no-print" alignItems="center" sx={{ mt: 3 }}>
-          <Pagination count={data.pages} page={page} onChange={(e, v) => setPage(v)} color="primary" />
+          <Pagination
+            count={data.pages}
+            page={page}
+            onChange={(e, v) => setPage(v)}
+            color="primary"
+            siblingCount={0}
+            boundaryCount={1}
+            size="small"
+          />
         </Stack>
       )}
 
