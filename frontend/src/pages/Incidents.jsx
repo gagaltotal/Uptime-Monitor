@@ -40,6 +40,23 @@ function durationLabel(seconds) {
 
 const STATUS_LABEL = { all: 'Semua', ongoing: 'Berlangsung', resolved: 'Selesai' };
 
+const PRINT_SOURCE = { monitors: 'Insiden Monitor', agents: 'Insiden Agent' };
+
+const AGENT_INCIDENT_TYPE = {
+  disconnect: 'Terputus',
+  cpu: 'CPU Tinggi',
+  memory: 'Memori Tinggi',
+  disk: 'Disk Penuh',
+  load: 'Load Tinggi',
+  service: 'Service Gagal',
+  reported: 'Dilaporkan Agent',
+};
+
+function agentTargetLabel(agent) {
+  if (!agent) return '';
+  return [agent.hostname, agent.ipAddress].filter(Boolean).join(' · ') || agent.distro || '';
+}
+
 const MONTHS = [
   'Januari',
   'Februari',
@@ -69,6 +86,7 @@ export default function Incidents() {
 
   // state cetak
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [printSource, setPrintSource] = useState('monitors');
   const [printYear, setPrintYear] = useState(currentYear);
   const [printMonth, setPrintMonth] = useState(0); // 0 = semua bulan dalam tahun
   const [printing, setPrinting] = useState(false);
@@ -83,11 +101,12 @@ export default function Incidents() {
       // hanya ambil insiden pada periode yang dipilih (tanpa pagination)
       const start = printMonth ? new Date(printYear, printMonth - 1, 1) : new Date(printYear, 0, 1);
       const end = printMonth ? new Date(printYear, printMonth, 1) : new Date(printYear + 1, 0, 1);
-      const params = { from: start.toISOString(), to: end.toISOString() };
+      const params = { from: start.toISOString(), to: end.toISOString(), source: printSource };
       if (status !== 'all') params.status = status;
 
       const { data: res } = await api.get('/incidents/report', { params });
       setPrintMeta({
+        source: printSource,
         periodLabel: printMonth ? `${MONTHS[printMonth - 1]} ${printYear}` : `Tahun ${printYear}`,
         truncated: res.truncated,
       });
@@ -105,7 +124,8 @@ export default function Incidents() {
     const prevTitle = document.title;
     const t = setTimeout(() => {
       // judul dokumen dipakai sebagai nama file saat "Simpan sebagai PDF"
-      document.title = `Laporan-Insiden-${(printMeta?.periodLabel || '').replace(/\s+/g, '-')}`;
+      const sourceLabel = printMeta?.source === 'agents' ? 'Agent' : 'Monitor';
+      document.title = `Laporan-Insiden-${sourceLabel}-${(printMeta?.periodLabel || '').replace(/\s+/g, '-')}`;
       window.print();
       document.title = prevTitle;
       setPrinting(false);
@@ -119,6 +139,7 @@ export default function Incidents() {
   const ongoingCount = reportIncidents.filter((i) => i.status === 'ongoing').length;
   const resolvedCount = reportIncidents.filter((i) => i.status === 'resolved').length;
   const reportYear = new Date().getFullYear();
+  const reportIsAgent = printMeta?.source === 'agents';
 
   useEffect(() => {
     const params = { page, limit: 20 };
@@ -247,6 +268,18 @@ export default function Incidents() {
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <FormControl fullWidth size="small">
+              <InputLabel id="print-source-label">Jenis Insiden</InputLabel>
+              <Select
+                labelId="print-source-label"
+                label="Jenis Insiden"
+                value={printSource}
+                onChange={(e) => setPrintSource(e.target.value)}
+              >
+                <MenuItem value="monitors">Insiden Monitor (seluruh downtime)</MenuItem>
+                <MenuItem value="agents">Insiden Agent</MenuItem>
+              </Select>
+            </FormControl>
+            <FormControl fullWidth size="small">
               <InputLabel id="print-year-label">Tahun</InputLabel>
               <Select
                 labelId="print-year-label"
@@ -280,6 +313,10 @@ export default function Incidents() {
             <Typography variant="caption" color="text.secondary">
               Status mengikuti filter yang sedang aktif ({STATUS_LABEL[status]}).
             </Typography>
+            <Typography variant="caption" color="text.secondary">
+              Pilih “Insiden Monitor” untuk seluruh riwayat downtime monitor, atau “Insiden Agent”
+              untuk insiden yang dilaporkan dari log agent (disconnect, CPU, memori, disk, service).
+            </Typography>
           </Stack>
         </DialogContent>
         <DialogActions>
@@ -295,7 +332,7 @@ export default function Incidents() {
         <Box className="print-report">
           <Box className="print-header">
             <Typography component="h1" sx={{ fontSize: '20pt', fontWeight: 700, color: '#111' }}>
-              Laporan Insiden
+              {reportIsAgent ? 'Laporan Insiden Agent' : 'Laporan Insiden Monitor'}
             </Typography>
             <Typography sx={{ fontSize: '10pt', color: '#444' }}>Uptime Monitor</Typography>
           </Box>
@@ -305,6 +342,10 @@ export default function Incidents() {
               <tr>
                 <td>Tanggal cetak</td>
                 <td>{new Date().toLocaleString('id-ID')}</td>
+              </tr>
+              <tr>
+                <td>Jenis insiden</td>
+                <td>{PRINT_SOURCE[printMeta?.source] || '-'}</td>
               </tr>
               <tr>
                 <td>Periode</td>
@@ -323,35 +364,66 @@ export default function Incidents() {
                 <td>
                   {ongoingCount} / {resolvedCount}
                 </td>
+              </tr>
+            </tbody>
+          </table>
+
           {printMeta?.truncated && (
             <Typography sx={{ fontSize: '9pt', color: '#b00020', mb: 1 }}>
               Data dibatasi. Persempit periode untuk melihat seluruh insiden.
             </Typography>
           )}
 
-              </tr>
-            </tbody>
-          </table>
-
           <table className="print-table">
             <thead>
-              <tr>
-                <th style={{ width: '4%' }}>No</th>
-                <th style={{ width: '18%' }}>Monitor</th>
-                <th style={{ width: '20%' }}>Target</th>
-                <th style={{ width: '11%' }}>Status</th>
-                <th style={{ width: '17%' }}>Mulai</th>
-                <th style={{ width: '17%' }}>Selesai</th>
-                <th style={{ width: '13%' }}>Durasi</th>
-              </tr>
+              {reportIsAgent ? (
+                <tr>
+                  <th style={{ width: '4%' }}>No</th>
+                  <th style={{ width: '18%' }}>Agent</th>
+                  <th style={{ width: '18%' }}>Target</th>
+                  <th style={{ width: '15%' }}>Jenis</th>
+                  <th style={{ width: '9%' }}>Tingkat</th>
+                  <th style={{ width: '10%' }}>Status</th>
+                  <th style={{ width: '13%' }}>Mulai</th>
+                  <th style={{ width: '13%' }}>Durasi</th>
+                </tr>
+              ) : (
+                <tr>
+                  <th style={{ width: '4%' }}>No</th>
+                  <th style={{ width: '18%' }}>Monitor</th>
+                  <th style={{ width: '20%' }}>Target</th>
+                  <th style={{ width: '11%' }}>Status</th>
+                  <th style={{ width: '17%' }}>Mulai</th>
+                  <th style={{ width: '17%' }}>Selesai</th>
+                  <th style={{ width: '13%' }}>Durasi</th>
+                </tr>
+              )}
             </thead>
             <tbody>
               {reportIncidents.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center' }}>
+                  <td colSpan={reportIsAgent ? 8 : 7} style={{ textAlign: 'center' }}>
                     Tidak ada insiden.
                   </td>
                 </tr>
+              ) : reportIsAgent ? (
+                reportIncidents.map((incident, idx) => (
+                  <tr key={incident._id}>
+                    <td>{idx + 1}</td>
+                    <td>{incident.agent?.name || 'Agent telah dihapus'}</td>
+                    <td className="mono">{agentTargetLabel(incident.agent)}</td>
+                    <td>
+                      {AGENT_INCIDENT_TYPE[incident.type] || incident.type}
+                      {incident.cause && (
+                        <div style={{ fontSize: '8pt', color: '#555', marginTop: 2 }}>{incident.cause}</div>
+                      )}
+                    </td>
+                    <td>{incident.severity === 'critical' ? 'Critical' : 'Warning'}</td>
+                    <td>{incident.status === 'ongoing' ? 'Berlangsung' : 'Selesai'}</td>
+                    <td>{new Date(incident.startedAt).toLocaleString('id-ID')}</td>
+                    <td>{durationLabel(incident.durationSeconds)}</td>
+                  </tr>
+                ))
               ) : (
                 reportIncidents.map((incident, idx) => (
                   <tr key={incident._id}>

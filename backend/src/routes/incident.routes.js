@@ -1,5 +1,6 @@
 const express = require('express');
 const Incident = require('../models/Incident');
+const AgentIncident = require('../models/AgentIncident');
 const { protect } = require('../middleware/auth');
 const { catchAsync } = require('../utils/helpers');
 
@@ -30,12 +31,15 @@ router.get(
   })
 );
 
-// GET /api/incidents/report?from=ISO&to=ISO&status=ongoing|resolved
+// GET /api/incidents/report?from=ISO&to=ISO&status=ongoing|resolved&source=monitors|agents
 // Khusus untuk cetak laporan: tanpa pagination, hanya field yang dibutuhkan, dibatasi jumlahnya.
 const REPORT_MAX_ROWS = 5000;
+const REPORT_SOURCES = ['monitors', 'agents'];
 router.get(
   '/report',
   catchAsync(async (req, res) => {
+    const source = REPORT_SOURCES.includes(req.query.source) ? req.query.source : 'monitors';
+
     const filter = {};
     if (['ongoing', 'resolved'].includes(req.query.status)) {
       filter.status = req.query.status;
@@ -52,6 +56,21 @@ router.get(
       if (to) filter.startedAt.$lt = to;
     }
 
+    // Insiden agent (dari laporan agent: disconnect, CPU, memori, disk, service, dll).
+    if (source === 'agents') {
+      const incidents = await AgentIncident.find(filter)
+        .select('agent type severity cause status startedAt resolvedAt durationSeconds')
+        .sort({ startedAt: 1 })
+        .limit(REPORT_MAX_ROWS + 1)
+        .populate('agent', 'name hostname ipAddress distro')
+        .lean();
+
+      const truncated = incidents.length > REPORT_MAX_ROWS;
+      if (truncated) incidents.pop();
+
+      return res.json({ source, incidents, total: incidents.length, truncated });
+    }
+
     const incidents = await Incident.find(filter)
       .select('monitor status startedAt resolvedAt durationSeconds')
       .sort({ startedAt: 1 })
@@ -62,7 +81,7 @@ router.get(
     const truncated = incidents.length > REPORT_MAX_ROWS;
     if (truncated) incidents.pop();
 
-    res.json({ incidents, total: incidents.length, truncated });
+    res.json({ source, incidents, total: incidents.length, truncated });
   })
 );
 
