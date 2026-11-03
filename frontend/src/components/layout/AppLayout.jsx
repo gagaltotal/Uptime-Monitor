@@ -16,6 +16,7 @@ import MenuRoundedIcon from '@mui/icons-material/MenuRounded';
 import SpaceDashboardRoundedIcon from '@mui/icons-material/SpaceDashboardRounded';
 import ReportRoundedIcon from '@mui/icons-material/ReportRounded';
 import DnsRoundedIcon from '@mui/icons-material/DnsRounded';
+import VerifiedUserRoundedIcon from '@mui/icons-material/VerifiedUserRounded';
 import PublicRoundedIcon from '@mui/icons-material/PublicRounded';
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
@@ -33,6 +34,7 @@ const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: SpaceDashboardRoundedIcon, end: true },
   { to: '/incidents', label: 'Insiden', icon: ReportRoundedIcon },
   { to: '/agents', label: 'Agent', icon: DnsRoundedIcon },
+  { to: '/ssl', label: 'SSL & Domain', icon: VerifiedUserRoundedIcon },
   { to: '/status-pages', label: 'Halaman Status', icon: PublicRoundedIcon },
   { to: '/settings', label: 'Pengaturan', icon: SettingsRoundedIcon },
 ];

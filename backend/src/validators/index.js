@@ -109,6 +109,31 @@ const schemas = {
     notificationChannels: Joi.array().items(objectId).default([]),
   }),
 
+  // SSL & Domain monitor. `domain` accepts a bare hostname, a host:port
+  // pair, or a full URL; the route normalizes it to a hostname before save
+  // (see helpers.normalizeDomain), so here we only bound its length and
+  // reject control characters.
+  sslMonitor: Joi.object({
+    name: Joi.string().trim().min(1).max(200).required(),
+    domain: Joi.string()
+      .trim()
+      .min(1)
+      .max(255)
+      .pattern(/^[^\s]+$/)
+      .required()
+      .messages({
+        'string.pattern.base': 'Domain tidak boleh mengandung spasi.',
+      }),
+    port: Joi.number().integer().min(1).max(65535).default(443),
+    interval: Joi.number().integer().min(60).max(604800).default(21600),
+    timeout: Joi.number().integer().min(1).max(60).default(10),
+    retries: Joi.number().integer().min(0).max(5).default(1),
+    alertThresholdDays: Joi.number().integer().min(1).max(365).default(14),
+    tags: Joi.array().items(Joi.string().trim().max(40).allow('')).max(20).default([]),
+    isActive: Joi.boolean().default(true),
+    notificationChannels: Joi.array().items(objectId).default([]),
+  }),
+
   notificationChannel: Joi.object({
     name: Joi.string().trim().min(1).max(100).required(),
     type: Joi.string().valid('discord', 'slack', 'telegram').required(),

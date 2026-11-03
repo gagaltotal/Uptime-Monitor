@@ -4,6 +4,7 @@ const router = express.Router();
 
 router.use('/auth', require('./auth.routes'));
 router.use('/monitors', require('./monitor.routes'));
+router.use('/ssl', require('./ssl.routes'));
 router.use('/agents', require('./agent.routes'));
 router.use('/incidents', require('./incident.routes'));
 router.use('/status-pages', require('./statusPage.routes'));

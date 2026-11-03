@@ -43,7 +43,7 @@ function durationLabel(seconds) {
 
 const STATUS_LABEL = { all: 'Semua', ongoing: 'Berlangsung', resolved: 'Selesai' };
 
-const PRINT_SOURCE = { monitors: 'Insiden Monitor', agents: 'Insiden Agent' };
+const PRINT_SOURCE = { monitors: 'Insiden Monitor', agents: 'Insiden Agent', ssl: 'Insiden SSL & Domain' };
 
 const AGENT_INCIDENT_TYPE = {
   disconnect: 'Terputus',
@@ -55,13 +55,30 @@ const AGENT_INCIDENT_TYPE = {
   reported: 'Dilaporkan Agent',
 };
 
+const SSL_INCIDENT_TYPE = {
+  expiring: 'Segera Kedaluwarsa',
+  expired: 'Kedaluwarsa',
+  error: 'Gagal Dicek',
+};
+
 function agentTargetLabel(agent) {
   if (!agent) return '';
   return [agent.hostname, agent.ipAddress].filter(Boolean).join(' · ') || agent.distro || '';
 }
 
+function sslTargetLabel(ssl) {
+  if (!ssl) return '';
+  return ssl.port && ssl.port !== 443 ? `${ssl.domain}:${ssl.port}` : ssl.domain;
+}
+
+function daysLeftText(days) {
+  if (days === null || days === undefined) return '-';
+  return days < 0 ? `${Math.abs(days)} hari lalu` : `${days} hari`;
+}
+
 const MONITOR_COLUMNS = '1.6fr 2fr 0.9fr 1.4fr 1fr';
 const AGENT_COLUMNS = '1.2fr 1.4fr 1.2fr 0.8fr 1.1fr 1.3fr 0.9fr';
+const SSL_COLUMNS = '1.4fr 1.6fr 1.4fr 1.3fr 0.9fr 1.4fr 1fr';
 
 function severityLabel(severity) {
   return severity === 'critical' ? 'Critical' : 'Warning';
@@ -80,12 +97,15 @@ function StatusChip({ status }) {
 
 function IncidentRow({ incident, source, onOpen }) {
   const isAgent = source === 'agents';
-  const target = isAgent ? incident.agent : incident.monitor;
-  const columns = isAgent ? AGENT_COLUMNS : MONITOR_COLUMNS;
-  const targetText = isAgent ? agentTargetLabel(target) : targetLabel(target);
-  const title = target?.name || (isAgent ? 'Agent telah dihapus' : 'Monitor telah dihapus');
+  const isSsl = source === 'ssl';
+  const target = isAgent ? incident.agent : isSsl ? incident.sslMonitor : incident.monitor;
+  const columns = isAgent ? AGENT_COLUMNS : isSsl ? SSL_COLUMNS : MONITOR_COLUMNS;
+  const targetText = isAgent ? agentTargetLabel(target) : isSsl ? sslTargetLabel(target) : targetLabel(target);
+  const title =
+    target?.name || (isAgent ? 'Agent telah dihapus' : isSsl ? 'Monitor SSL telah dihapus' : 'Monitor telah dihapus');
   const startedLabel = new Date(incident.startedAt).toLocaleString('id-ID');
   const cause = incident.cause || '';
+  const expiresLabel = target?.expiresAt ? new Date(target.expiresAt).toLocaleDateString('id-ID') : '—';
 
   return (
     <Box
@@ -145,6 +165,64 @@ function IncidentRow({ incident, source, onOpen }) {
         {targetText || '—'}
       </Typography>
 
+      {/* Ringkasan insiden SSL (mobile) */}
+      {isSsl && (
+        <Stack
+          direction="row"
+          spacing={0.75}
+          alignItems="center"
+          sx={{ display: { xs: 'flex', md: 'none' }, mt: 0.75, flexWrap: 'wrap', rowGap: 0.5 }}
+        >
+          <Chip
+            size="small"
+            variant="outlined"
+            label={SSL_INCIDENT_TYPE[incident.type] || incident.type}
+            color={incident.severity === 'critical' ? 'error' : 'warning'}
+            sx={{ fontSize: '0.7rem' }}
+          />
+          <Typography variant="caption" color="text.secondary">
+            Kedaluwarsa {expiresLabel} · {daysLeftText(target?.daysRemaining)}
+          </Typography>
+        </Stack>
+      )}
+
+      {/* Penerbit (desktop, kolom sendiri) */}
+      {isSsl && (
+        <Typography
+          variant="body2"
+          title={target?.issuer || undefined}
+          sx={{
+            display: { xs: 'none', md: 'block' },
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {target?.issuer || '—'}
+        </Typography>
+      )}
+
+      {/* Kedaluwarsa (desktop, kolom sendiri) */}
+      {isSsl && (
+        <Typography
+          variant="body2"
+          color="text.secondary"
+          sx={{ display: { xs: 'none', md: 'block' }, fontFamily: (t) => t.typography.fontFamilyMono }}
+        >
+          {expiresLabel}
+        </Typography>
+      )}
+
+      {/* Sisa hari (desktop, kolom sendiri) */}
+      {isSsl && (
+        <Typography
+          variant="body2"
+          sx={{ display: { xs: 'none', md: 'block' }, fontFamily: (t) => t.typography.fontFamilyMono }}
+        >
+          {daysLeftText(target?.daysRemaining)}
+        </Typography>
+      )}
+
       {/* Jenis insiden agent (mobile & desktop) */}
       {isAgent && (
         <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mt: { xs: 0.75, md: 0 }, flexWrap: 'wrap', rowGap: 0.5 }}>
@@ -190,17 +268,19 @@ function IncidentRow({ incident, source, onOpen }) {
         {startedLabel}
       </Typography>
 
-      {/* Durasi */}
-      <Typography
-        variant="caption"
-        color="text.secondary"
-        sx={{ mt: { xs: 0.25, md: 0 }, whiteSpace: 'nowrap' }}
-      >
-        Durasi: {durationLabel(incident.durationSeconds)}
-      </Typography>
+      {/* Durasi (tidak relevan untuk insiden SSL) */}
+      {!isSsl && (
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ mt: { xs: 0.25, md: 0 }, whiteSpace: 'nowrap' }}
+        >
+          Durasi: {durationLabel(incident.durationSeconds)}
+        </Typography>
+      )}
 
-      {/* Cause dipakai sebagai keterangan tambahan pada insiden agent */}
-      {isAgent && cause && (
+      {/* Cause dipakai sebagai keterangan tambahan pada insiden agent & SSL */}
+      {(isAgent || isSsl) && cause && (
         <Typography
           variant="caption"
           color="text.secondary"
@@ -292,7 +372,7 @@ export default function Incidents() {
     const prevTitle = document.title;
     const t = setTimeout(() => {
       // judul dokumen dipakai sebagai nama file saat "Simpan sebagai PDF"
-      const sourceLabel = printMeta?.source === 'agents' ? 'Agent' : 'Monitor';
+      const sourceLabel = printMeta?.source === 'agents' ? 'Agent' : printMeta?.source === 'ssl' ? 'SSL-Domain' : 'Monitor';
       document.title = `Laporan-Insiden-${sourceLabel}-${(printMeta?.periodLabel || '').replace(/\s+/g, '-')}`;
       window.print();
       document.title = prevTitle;
@@ -308,6 +388,7 @@ export default function Incidents() {
   const resolvedCount = reportIncidents.filter((i) => i.status === 'resolved').length;
   const reportYear = new Date().getFullYear();
   const reportIsAgent = printMeta?.source === 'agents';
+  const reportIsSsl = printMeta?.source === 'ssl';
   // Pakai sumber dari respons agar header & baris selalu konsisten saat ganti filter.
   const listSource = data?.source || source;
 
@@ -387,6 +468,7 @@ export default function Incidents() {
           >
             <MenuItem value="monitors">Insiden Monitor</MenuItem>
             <MenuItem value="agents">Insiden Agent</MenuItem>
+            <MenuItem value="ssl">Insiden SSL &amp; Domain</MenuItem>
           </TextField>
 
           <ToggleButtonGroup
@@ -409,7 +491,13 @@ export default function Incidents() {
 
         <TextField
           size="small"
-          placeholder={source === 'agents' ? 'Cari agent, host, jenis…' : 'Cari monitor, target…'}
+          placeholder={
+            source === 'agents'
+              ? 'Cari agent, host, jenis...'
+              : source === 'ssl'
+              ? 'Cari domain, penerbit...'
+              : 'Cari monitor, target...'
+          }
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           sx={{ minWidth: { xs: '100%', sm: 260 }, maxWidth: { md: 320 } }}
@@ -429,7 +517,8 @@ export default function Incidents() {
           <Box
             sx={{
               display: { xs: 'none', md: 'grid' },
-              gridTemplateColumns: listSource === 'agents' ? AGENT_COLUMNS : MONITOR_COLUMNS,
+              gridTemplateColumns:
+                listSource === 'agents' ? AGENT_COLUMNS : listSource === 'ssl' ? SSL_COLUMNS : MONITOR_COLUMNS,
               gap: 2,
               px: 2.5,
               py: 1.25,
@@ -439,7 +528,7 @@ export default function Incidents() {
             }}
           >
             <Typography variant="caption" fontWeight={600} color="text.secondary">
-              {listSource === 'agents' ? 'Agent' : 'Monitor'}
+              {listSource === 'agents' ? 'Agent' : listSource === 'ssl' ? 'Monitor SSL' : 'Monitor'}
             </Typography>
             <Typography variant="caption" fontWeight={600} color="text.secondary">
               Target
@@ -454,15 +543,32 @@ export default function Incidents() {
                 Tingkat
               </Typography>
             )}
+            {listSource === 'ssl' && (
+              <Typography variant="caption" fontWeight={600} color="text.secondary">
+                Penerbit
+              </Typography>
+            )}
+            {listSource === 'ssl' && (
+              <Typography variant="caption" fontWeight={600} color="text.secondary">
+                Kedaluwarsa
+              </Typography>
+            )}
+            {listSource === 'ssl' && (
+              <Typography variant="caption" fontWeight={600} color="text.secondary">
+                Sisa Hari
+              </Typography>
+            )}
             <Typography variant="caption" fontWeight={600} color="text.secondary">
               Status
             </Typography>
             <Typography variant="caption" fontWeight={600} color="text.secondary">
               Mulai
             </Typography>
-            <Typography variant="caption" fontWeight={600} color="text.secondary">
-              Durasi
-            </Typography>
+            {listSource !== 'ssl' && (
+              <Typography variant="caption" fontWeight={600} color="text.secondary">
+                Durasi
+              </Typography>
+            )}
           </Box>
         )}
 
@@ -486,6 +592,8 @@ export default function Incidents() {
               onOpen={() => {
                 if (listSource === 'agents') {
                   if (incident.agent?._id) navigate(`/agents/${incident.agent._id}`);
+                } else if (listSource === 'ssl') {
+                  if (incident.sslMonitor?._id) navigate(`/ssl/${incident.sslMonitor._id}`);
                 } else if (incident.monitor?._id) {
                   navigate(`/monitors/${incident.monitor._id}`);
                 }
@@ -524,6 +632,7 @@ export default function Incidents() {
               >
                 <MenuItem value="monitors">Insiden Monitor (seluruh downtime)</MenuItem>
                 <MenuItem value="agents">Insiden Agent</MenuItem>
+                <MenuItem value="ssl">Insiden SSL &amp; Domain</MenuItem>
               </Select>
             </FormControl>
             <FormControl fullWidth size="small">
@@ -561,8 +670,9 @@ export default function Incidents() {
               Status mengikuti filter yang sedang aktif ({STATUS_LABEL[status]}).
             </Typography>
             <Typography variant="caption" color="text.secondary">
-              Pilih “Insiden Monitor” untuk seluruh riwayat downtime monitor, atau “Insiden Agent”
-              untuk insiden yang dilaporkan dari log agent (disconnect, CPU, memori, disk, service).
+              Pilih “Insiden Monitor” untuk seluruh riwayat downtime monitor, “Insiden Agent” untuk
+              insiden yang dilaporkan dari log agent (disconnect, CPU, memori, disk, service), atau
+              “Insiden SSL &amp; Domain” untuk riwayat sertifikat hampir/ sudah kedaluwarsa.
             </Typography>
           </Stack>
         </DialogContent>
@@ -579,7 +689,11 @@ export default function Incidents() {
         <Box className="print-report">
           <Box className="print-header">
             <Typography component="h1" sx={{ fontSize: '20pt', fontWeight: 700, color: '#111' }}>
-              {reportIsAgent ? 'Laporan Insiden Agent' : 'Laporan Insiden Monitor'}
+              {reportIsAgent
+                ? 'Laporan Insiden Agent'
+                : reportIsSsl
+                ? 'Laporan Insiden SSL & Domain'
+                : 'Laporan Insiden Monitor'}
             </Typography>
             <Typography sx={{ fontSize: '10pt', color: '#444' }}>Uptime Monitor</Typography>
           </Box>
@@ -634,6 +748,17 @@ export default function Incidents() {
                   <th style={{ width: '13%' }}>Mulai</th>
                   <th style={{ width: '13%' }}>Durasi</th>
                 </tr>
+              ) : reportIsSsl ? (
+                <tr>
+                  <th style={{ width: '4%' }}>No</th>
+                  <th style={{ width: '16%' }}>Monitor</th>
+                  <th style={{ width: '17%' }}>Domain</th>
+                  <th style={{ width: '17%' }}>Penerbit</th>
+                  <th style={{ width: '12%' }}>Kedaluwarsa</th>
+                  <th style={{ width: '9%' }}>Sisa Hari</th>
+                  <th style={{ width: '11%' }}>Status</th>
+                  <th style={{ width: '14%' }}>Mulai</th>
+                </tr>
               ) : (
                 <tr>
                   <th style={{ width: '4%' }}>No</th>
@@ -649,7 +774,7 @@ export default function Incidents() {
             <tbody>
               {reportIncidents.length === 0 ? (
                 <tr>
-                  <td colSpan={reportIsAgent ? 8 : 7} style={{ textAlign: 'center' }}>
+                  <td colSpan={reportIsAgent ? 8 : reportIsSsl ? 8 : 7} style={{ textAlign: 'center' }}>
                     Tidak ada insiden.
                   </td>
                 </tr>
@@ -669,6 +794,28 @@ export default function Incidents() {
                     <td>{incident.status === 'ongoing' ? 'Berlangsung' : 'Selesai'}</td>
                     <td>{new Date(incident.startedAt).toLocaleString('id-ID')}</td>
                     <td>{durationLabel(incident.durationSeconds)}</td>
+                  </tr>
+                ))
+              ) : reportIsSsl ? (
+                reportIncidents.map((incident, idx) => (
+                  <tr key={incident._id}>
+                    <td>{idx + 1}</td>
+                    <td>{incident.sslMonitor?.name || 'Monitor SSL telah dihapus'}</td>
+                    <td className="mono">{sslTargetLabel(incident.sslMonitor)}</td>
+                    <td>{incident.sslMonitor?.issuer || '-'}</td>
+                    <td>
+                      {incident.sslMonitor?.expiresAt
+                        ? new Date(incident.sslMonitor.expiresAt).toLocaleDateString('id-ID')
+                        : '-'}
+                    </td>
+                    <td>{daysLeftText(incident.sslMonitor?.daysRemaining)}</td>
+                    <td>
+                      {incident.status === 'ongoing' ? 'Berlangsung' : 'Selesai'}
+                      {incident.cause && (
+                        <div style={{ fontSize: '8pt', color: '#555', marginTop: 2 }}>{incident.cause}</div>
+                      )}
+                    </td>
+                    <td>{new Date(incident.startedAt).toLocaleString('id-ID')}</td>
                   </tr>
                 ))
               ) : (

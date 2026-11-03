@@ -74,6 +74,17 @@ function emitAgentLog(agentId, log) {
   io?.emit('agent:log', { agentId: agentId.toString(), log });
 }
 
+// SSL/Domain monitor equivalents — same contract as the channels above, kept
+// in their own namespace so the SSL page can update live without touching the
+// existing monitor or agent streams.
+function emitSslUpdate(sslMonitor) {
+  io?.emit('ssl:update', sslMonitor);
+}
+
+function emitSslIncident(incident) {
+  io?.emit('ssl:incident', incident);
+}
+
 module.exports = {
   init,
   emitMonitorUpdate,
@@ -83,4 +94,6 @@ module.exports = {
   emitAgentHeartbeat,
   emitAgentIncident,
   emitAgentLog,
+  emitSslUpdate,
+  emitSslIncident,
 };

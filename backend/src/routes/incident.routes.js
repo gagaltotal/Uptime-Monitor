@@ -1,15 +1,17 @@
 const express = require('express');
 const Incident = require('../models/Incident');
 const AgentIncident = require('../models/AgentIncident');
+const SslIncident = require('../models/SslIncident');
 const Monitor = require('../models/Monitor');
 const Agent = require('../models/Agent');
+const SslMonitor = require('../models/SslMonitor');
 const { protect } = require('../middleware/auth');
 const { catchAsync } = require('../utils/helpers');
 
 const router = express.Router();
 router.use(protect);
 
-const SOURCES = ['monitors', 'agents'];
+const SOURCES = ['monitors', 'agents', 'ssl'];
 
 function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -59,6 +61,33 @@ router.get(
       return res.json({ source, incidents, total, page, pages: Math.ceil(total / limit) });
     }
 
+    // SSL & Domain incidents — certificate expiring/expired/error.
+    if (source === 'ssl') {
+      if (rx) {
+        const sslIds = await SslMonitor.find({
+          $or: [{ name: rx }, { domain: rx }, { issuer: rx }],
+        })
+          .select('_id')
+          .lean();
+        filter.$or = [
+          { sslMonitor: { $in: sslIds.map((m) => m._id) } },
+          { cause: rx },
+          { type: rx },
+        ];
+      }
+
+      const [incidents, total] = await Promise.all([
+        SslIncident.find(filter)
+          .sort({ startedAt: -1 })
+          .skip((page - 1) * limit)
+          .limit(limit)
+          .populate('sslMonitor', 'name domain port issuer expiresAt daysRemaining status'),
+        SslIncident.countDocuments(filter),
+      ]);
+
+      return res.json({ source, incidents, total, page, pages: Math.ceil(total / limit) });
+    }
+
     if (rx) {
       const monitorIds = await Monitor.find({
         $or: [{ name: rx }, { url: rx }, { host: rx }],
@@ -87,7 +116,7 @@ router.get(
 // GET /api/incidents/report?from=ISO&to=ISO&status=ongoing|resolved&source=monitors|agents
 // Khusus untuk cetak laporan: tanpa pagination, hanya field yang dibutuhkan, dibatasi jumlahnya.
 const REPORT_MAX_ROWS = 5000;
-const REPORT_SOURCES = ['monitors', 'agents'];
+const REPORT_SOURCES = ['monitors', 'agents', 'ssl'];
 router.get(
   '/report',
   catchAsync(async (req, res) => {
@@ -116,6 +145,23 @@ router.get(
         .sort({ startedAt: 1 })
         .limit(REPORT_MAX_ROWS + 1)
         .populate('agent', 'name hostname ipAddress distro')
+        .lean();
+
+      const truncated = incidents.length > REPORT_MAX_ROWS;
+      if (truncated) incidents.pop();
+
+      return res.json({ source, incidents, total: incidents.length, truncated });
+    }
+
+    // Insiden SSL & Domain (expiring/expired/error). Field sertifikat
+    // (issuer, expiresAt, daysRemaining) ikut disertakan agar laporan cetak
+    // menampilkan Detail Domain, Issuer, Tanggal Kedaluwarsa, dan Sisa Hari.
+    if (source === 'ssl') {
+      const incidents = await SslIncident.find(filter)
+        .select('sslMonitor type severity cause status startedAt resolvedAt durationSeconds')
+        .sort({ startedAt: 1 })
+        .limit(REPORT_MAX_ROWS + 1)
+        .populate('sslMonitor', 'name domain port issuer expiresAt daysRemaining status lastNotifiedAt')
         .lean();
 
       const truncated = incidents.length > REPORT_MAX_ROWS;

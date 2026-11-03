@@ -58,4 +58,87 @@ function msToDuration(ms) {
   return `${secs}d`;
 }
 
-module.exports = { ApiError, catchAsync, slugify, sanitizeUser, msToDuration };
+// Normalizes user-entered SSL targets into a bare hostname. Accepts a full
+// URL (https://example.com/path), a host:port pair, or a plain hostname and
+// always returns { host, port } with the host lowercased and stripped of any
+// scheme, path, query, trailing dot, or IPv6 brackets. Returns null when the
+// input can't be turned into a plausible hostname, so validation can reject
+// it rather than persisting garbage that will never resolve.
+function normalizeDomain(input, fallbackPort = 443) {
+  if (typeof input !== 'string') return null;
+  let raw = input.trim();
+  if (!raw) return null;
+
+  let explicitPort = null;
+  let host = raw;
+
+  // If a scheme is present, let the URL parser do the heavy lifting.
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) {
+    try {
+      const url = new URL(raw);
+      host = url.hostname;
+      if (url.port) explicitPort = parseInt(url.port, 10);
+      return finalizeDomain(host, explicitPort, fallbackPort);
+    } catch {
+      return null;
+    }
+  }
+
+  // Strip a path/query/fragment if the user pasted a URL without a scheme.
+  host = host.split(/[/?#]/)[0];
+
+  // Bracketed IPv6, e.g. [2001:db8::1]:443
+  const v6 = host.match(/^\[([^\]]+)\](?::(\d+))?$/);
+  if (v6) {
+    host = v6[1];
+    if (v6[2]) explicitPort = parseInt(v6[2], 10);
+    return finalizeDomain(host, explicitPort, fallbackPort);
+  }
+
+  // host:port — only treat the trailing segment as a port when it is
+  // numeric, so a bare IPv6 address without brackets isn't mangled.
+  const hostPort = host.match(/^(.+):(\d+)$/);
+  if (hostPort && !host.includes('::')) {
+    host = hostPort[1];
+    explicitPort = parseInt(hostPort[2], 10);
+  }
+
+  return finalizeDomain(host, explicitPort, fallbackPort);
+}
+
+function finalizeDomain(host, explicitPort, fallbackPort) {
+  let value = String(host || '').trim().toLowerCase();
+  // Remove a single trailing dot (FQDN form) which is valid DNS but would
+  // pollute the stored value and SNI servername.
+  value = value.replace(/\.$/, '');
+  if (!value) return null;
+
+  let port = explicitPort;
+  if (port != null && (Number.isNaN(port) || port < 1 || port > 65535)) {
+    port = null;
+  }
+
+  return { host: value, port: port ?? fallbackPort, hasExplicitPort: explicitPort != null };
+}
+
+// Derives the display status of a certificate from its expiry date and the
+// configured warning threshold. Single source of truth shared by the engine,
+// the routes and the migration so a "days left" number always maps to the
+// same status label.
+function computeSslStatus({ daysRemaining, thresholdDays = 14, validFrom, now = Date.now() }) {
+  if (daysRemaining == null) return 'pending';
+  if (daysRemaining < 0) return 'expired';
+  if (validFrom && new Date(validFrom).getTime() > now) return 'pending';
+  if (daysRemaining <= thresholdDays) return 'expiring';
+  return 'valid';
+}
+
+module.exports = {
+  ApiError,
+  catchAsync,
+  slugify,
+  sanitizeUser,
+  msToDuration,
+  normalizeDomain,
+  computeSslStatus,
+};

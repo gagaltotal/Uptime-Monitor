@@ -7,6 +7,7 @@ Aplikasi pemantauan server & situs web **self-hosted** — alternatif open-sourc
 - **Dashboard real-time** — gambaran umum seluruh monitor, terhubung lewat WebSocket sehingga status ter-update tanpa refresh.
 - **Tiga jenis pengecekan**: HTTP(S), TCP port, dan ICMP ping.
 - **Pemantauan sertifikat SSL** otomatis untuk setiap monitor HTTPS, lengkap dengan peringatan sebelum kedaluwarsa.
+- **SSL & Domain Monitoring** — pemantauan khusus sertifikat TLS yang berdiri sendiri: domain, penerbit (issuer), tanggal kedaluwarsa, sisa hari, status, dan waktu notifikasi terakhir. Punya menu sendiri, tercatat sebagai insiden, dan bisa mengirim notifikasi. Cocok untuk memantau domain yang sertifikatnya perlu diperpanjang berkala. Lihat bagian [SSL & Domain Monitoring](#ssl--domain-monitoring).
 - **Riwayat uptime/downtime & waktu respons**, divisualisasikan dalam grafik.
 - **Deteksi insiden otomatis** — setiap kali layanan down, insiden tercatat lengkap dengan durasi.
 - **Notifikasi Discord, Slack & Telegram** saat layanan down, pulih kembali, atau SSL akan kedaluwarsa.
@@ -71,6 +72,9 @@ docker compose logs -f backend   # lihat log backend (mis. debug notifikasi)
 | `COOKIE_SECURE` | Ya, saat pakai HTTPS | Set `true` hanya jika aplikasi sudah di belakang HTTPS. |
 | `FRONTEND_PORT` | Opsional | Port host untuk mengakses dashboard (default `3000`). |
 | `HEARTBEAT_RETENTION_DAYS` | Opsional | Berapa lama histori pengecekan disimpan (default 90 hari). |
+| `SSL_TICK_INTERVAL_MS` | Opsional | Seberapa sering engine SSL memeriksa jadwal pengecekan (default `30000` ms). |
+| `SSL_WARN_THRESHOLD_DAYS` | Opsional | Ambang hari peringatan default untuk monitor SSL baru (default `14` hari). |
+| `SSL_RENOTIFY_INTERVAL_HOURS` | Opsional | Jeda minimal antar notifikasi berulang untuk insiden SSL yang sama (default `24` jam). |
 
 ### Mengakses dari domain atau IP LAN lain
 
@@ -172,18 +176,18 @@ uptime-monitor/
 ├── agent/                 # Agent Monitoring
 ├── backend/               # API Node.js + Express + Socket.IO
 │   └── src/
-│       ├── models/        # Skema Mongoose (Agent, Monitor, Heartbeat, Incident, ...)
+│       ├── models/        # Skema Mongoose (Agent, Monitor, Heartbeat, Incident, SslMonitor, SslIncident, ...)
 │       ├── middleware/    # auth, keamanan (helmet/rate-limit/sanitize), error handler
 │       ├── validators/    # Skema validasi Joi
-│       ├── services/      # Engine pemantauan, Agent, checker HTTP/TCP/Ping/SSL, notifier
+│       ├── services/      # Engine pemantauan, Agent, SSE/SSL engine, checker HTTP/TCP/Ping/SSL, notifier
 │       ├── migrations/    # Migrasi database bernomor + runner
 │       ├── seeders/       # Seeder akun admin
 │       ├── cli/           # Entry point `npm run migrate` & `npm run seed`
 │       └── routes/        # Endpoint REST API
 └── frontend/               # Dashboard React + MUI
     └── src/
-        ├── pages/          # Dashboard, Detail Monitor, Insiden, Halaman Status, Agent, dst.
-        ├── components/     # Komponen UI (baris monitor, grafik, form, dsb.)
+        ├── pages/          # Dashboard, Detail Monitor, Insiden, Halaman Status, Agent, SSL & Domain, dst.
+        ├── components/     # Komponen UI (baris monitor, grafik, form, SSL, dsb.)
         └── context/        # Autentikasi & koneksi real-time
 ```
 
@@ -333,6 +337,69 @@ Footer aplikasi menampilkan hak cipta dengan tahun berjalan secara otomatis (con
 
 Skrip agent mendukung **Debian/Ubuntu, RHEL/CentOS/Fedora, Alpine, Arch** — auto-detect package manager (`apt`, `yum/dnf`, `apk`, `pacman`) untuk menginstal `jq`, `bc`, `iproute2`/`ip`, `procps-ng`/`ps`, `df`, `uptime`.
 
+## SSL & Domain Monitoring
+
+Fitur ini memantau **masa berlaku sertifikat TLS/SSL** sebuah domain secara mandiri — terpisah dari monitor uptime biasa. Setiap domain yang Anda tambahkan akan dicek berkala, dan Anda bisa melihat sekilas: **Domain, Issuer (penerbit), Expiration Date (tanggal kedaluwarsa), Days Left (sisa hari), Status, dan Last Notified (terakhir dinotifikasi)**.
+
+### Membuka Menu
+
+Di sidebar navigasi klik **SSL & Domain**. Halaman ini menampilkan ringkasan (total, valid, segera expired, kedaluwarsa/gagal), kolom pencarian, dan daftar seluruh monitor SSL beserta statusnya.
+
+### Menambah Monitor SSL
+
+1. Klik **Tambah Monitor**.
+2. Isi **Nama** (mis. “Website Perusahaan”).
+3. Isi **Domain / URL** — boleh hostname (`example.com`), `host:port`, atau URL lengkap (`https://example.com`). Sistem akan menormalkannya otomatis.
+4. Pilih **Port** (default `443` untuk HTTPS). Tersedia juga 8443, 9443, 465 (SMTPS), 993 (IMAPS), dan 995 (POP3S).
+5. Atur **Interval pengecekan** (15 menit s/d 3 hari; default 6 jam — sertifikat jarang berubah, jadi tidak perlu dicek sesering uptime).
+6. Atur **Ambang peringatan** (3–90 hari; default mengikuti `SSL_WARN_THRESHOLD_DAYS`). Notifikasi dikirim saat sisa hari ≤ nilai ini.
+7. Atur **Timeout**, **Percobaan ulang**, **Tag**, dan **Status aktif** bila perlu.
+8. Pilih **kanal notifikasi** yang ingin menerima alert untuk domain ini.
+9. Simpan — sistem langsung melakukan pengecekan pertama.
+
+### Kolom & Status
+
+| Kolom | Arti |
+|---|---|
+| **Domain** | Hostname + port (menampilkan `:port` hanya bila bukan 443). |
+| **Issuer** | Penerbit sertifikat, mis. `Let's Encrypt` atau `DigiCert Inc`. |
+| **Expiration Date** | Tanggal sertifikat kedaluwarsa. |
+| **Days Left** | Sisa hari. Hijau bila masih jauh, kuning saat masuk ambang peringatan, merah saat ≤ 7 hari atau sudah kedaluwarsa. Nilai negatif berarti sudah lewat. |
+| **Status** | `pending` (belum pernah dicek), `valid`, `expiring` (≤ ambang peringatan), `expired`, atau `error` (gagal membaca sertifikat). |
+| **Last Notified** | Kapan notifikasi terakhir dikirim untuk domain ini. |
+
+### Halaman Detail
+
+Klik baris mana pun untuk membuka detail, berisi:
+
+- **Informasi Sertifikat** — domain, penerbit, subjek, nomor seri, berlaku sejak, tanggal kedaluwarsa, sisa hari, status, terakhir dinotifikasi, terakhir dicek.
+- **Ringkasan** — sisa hari, jumlah insiden aktif, total insiden, interval, ambang peringatan, timeout, percobaan ulang, dan kanal notifikasi.
+- **Riwayat Insiden** — seluruh insiden SSL (segera kedaluwarsa / kedaluwarsa / gagal dicek) beserta penyebab dan durasinya.
+- Tombol **Periksa** untuk pengecekan manual, serta tombol aktif/nonaktif, ubah, dan hapus.
+
+### Notifikasi
+
+Sistem mengirim notifikasi ke kanal yang terpasang pada monitor SSL:
+
+- **Segera kedaluwarsa** (warning) — saat status berubah menjadi `expiring`, dan diulang maksimal setiap `SSL_RENOTIFY_INTERVAL_HOURS` (default 24 jam) selama masih dalam ambang.
+- **Kedaluwarsa** (critical) — saat sertifikat benar-benar lewat masa berlaku.
+- **Gagal dicek** (critical) — saat pengecekan TLS gagal setelah melewati batas percobaan ulang.
+- **Pulih** — saat status kembali `valid`.
+
+Notifikasi **menggunakan ulang** channel Discord/Slack/Telegram yang sudah ada di **Pengaturan → Notifikasi**. Setiap pengiriman mencatat waktunya ke kolom **Last Notified** sehingga notifikasi berulang tidak membanjiri kanal.
+
+### Insiden
+
+Insiden SSL otomatis dibuat saat sertifikat masuk ambang peringatan (`expiring`), sudah kedaluwarsa (`expired`), atau gagal dicek (`error`), dan otomatis **resolve** saat kembali valid. Insiden ini:
+
+- muncul di tabel **SslIncident** dan tercatat lengkap dengan penyebab serta durasi;
+- tampil di menu **Insiden** bila Anda memilih jenis **Insiden SSL & Domain** pada filter;
+- ikut tercetak pada **Laporan Insiden PDF** — pilih “Insiden SSL & Domain” pada dialog cetak. Tabel laporan memuat kolom No, Monitor, Domain, Penerbit, Kedaluwarsa, Sisa Hari, Status, dan Mulai.
+
+### Migrasi Database
+
+Fitur ini menambahkan migrasi `004-create-ssl-monitor-indexes.js` yang membuat index untuk koleksi `sslmonitors` dan `sslincidents`. Migrasi berjalan otomatis saat backend start (lihat [Migrasi](#migrasi)) atau manual dengan `docker compose exec backend npm run migrate`.
+
 ## Masalah Umum
 
 **Monitor tipe "Ping" selalu gagal.** ICMP ping butuh kapabilitas jaringan khusus di dalam container. Pastikan `cap_add: [NET_RAW]` pada service `backend` di `docker-compose.yml` tidak dihapus. Jika masih gagal di host tertentu (beberapa kernel membatasi ICMP unprivileged), gunakan monitor tipe **TCP Port** sebagai alternatif — HTTP dan TCP tidak memerlukan kapabilitas khusus sama sekali.
@@ -342,6 +409,17 @@ Skrip agent mendukung **Debian/Ubuntu, RHEL/CentOS/Fedora, Alpine, Arch** — au
 **Notifikasi Discord/Slack tidak terkirim.** Gunakan tombol uji coba (ikon 🧪) di **Pengaturan → Notifikasi** untuk memastikan URL webhook benar. Backend menolak URL yang tidak cocok dengan pola resmi Discord/Slack.
 
 **Notifikasi Telegram tidak terkirim.** Di **Pengaturan → Notifikasi**, pilih tipe **Telegram** lalu isi **Bot Token** (dari [@BotFather](https://t.me/BotFather)) dan **Chat ID** tujuan (ID pengguna, grup, atau channel). Pastikan bot sudah pernah menerima pesan/kirim `/start` pada chat tersebut, dan untuk grup/channel bot harus ditambahkan sebagai anggota. Gunakan tombol uji coba (ikon 🧪) untuk memverifikasi bot token dan chat ID.
+
+**Monitor SSL berstatus `error` / “Gagal Dicek”.** Penyebab paling umum:
+
+- **DNS gagal** — pastikan domain dapat di-resolve dari dalam container backend. Uji dengan `docker compose exec backend node -e "require('dns').lookup('example.com', console.log)"`.
+- **Port tertutup atau salah** — server tidak mendengarkan TLS di port tersebut. Coba port `443` (HTTPS), `465` (SMTPS), `993` (IMAPS), `995` (POP3S), atau sesuaikan port kustom Anda.
+- **Timeout terlalu ketat** — naikkan nilai **Timeout** pada monitor SSL bila server tujuan lambat.
+- **Koneksi internet backend terputus** — monitor SSL memerlukan akses keluar ke domain target.
+
+Detail pesan kegagalan ditampilkan pada halaman detail monitor SSL dan disimpan sebagai `cause` pada insiden terkait. Setelah masalah teratasi, klik **Periksa** untuk memverifikasi ulang — status akan kembali `valid` dan insiden otomatis resolve.
+
+**Sertifikat sudah diperpanjang tetapi status masih `expired`.** Status diperbarui pada pengecekan berikutnya. Klik **Periksa** pada halaman detail untuk memperbarui segera tanpa menunggu interval.
 
 ## Lisensi
 

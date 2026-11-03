@@ -10,6 +10,8 @@ import Incidents from './pages/Incidents';
 import StatusPages from './pages/StatusPages';
 import Agents from './pages/Agents';
 import AgentDetail from './pages/AgentDetail';
+import SslMonitors from './pages/SslMonitors';
+import SslMonitorDetail from './pages/SslMonitorDetail';
 import PublicStatusPage from './pages/PublicStatusPage';
 import Settings from './pages/Settings';
 
@@ -27,6 +29,8 @@ export default function App() {
           <Route element={<AppLayout />}>
             <Route path="/" element={<Dashboard />} />
             <Route path="/monitors/:id" element={<MonitorDetail />} />
+            <Route path="/ssl" element={<SslMonitors />} />
+            <Route path="/ssl/:id" element={<SslMonitorDetail />} />
             <Route path="/incidents" element={<Incidents />} />
             <Route path="/agents" element={<Agents />} />
             <Route path="/agents/:id" element={<AgentDetail />} />

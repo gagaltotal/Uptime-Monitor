@@ -6,6 +6,7 @@ const app = require('./app');
 const socket = require('./services/socket');
 const monitorEngine = require('./services/monitorEngine');
 const agentEngine = require('./services/agentEngine');
+const sslEngine = require('./services/sslEngine');
 const retention = require('./services/retention');
 const migrations = require('./migrations/runner');
 const { seedAdmin } = require('./seeders/adminSeeder');
@@ -41,12 +42,14 @@ async function main() {
 
   monitorEngine.start();
   agentEngine.start();
+  sslEngine.start();
   retention.start();
 
   const shutdown = async (signal) => {
     logger.info(`Menerima ${signal}, mematikan server dengan aman...`);
     monitorEngine.stop();
     agentEngine.stop();
+    sslEngine.stop();
     httpServer.close(async () => {
       await disconnectDB();
       process.exit(0);

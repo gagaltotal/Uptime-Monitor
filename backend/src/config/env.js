@@ -37,6 +37,16 @@ const env = {
   // single missed beat does not raise a false incident.
   AGENT_OFFLINE_THRESHOLD_SECONDS: parseInt(process.env.AGENT_OFFLINE_THRESHOLD_SECONDS, 10) || 180,
 
+  // --- SSL & Domain monitoring ---
+  // How often the SSL engine wakes up to look for monitors that are due.
+  SSL_TICK_INTERVAL_MS: parseInt(process.env.SSL_TICK_INTERVAL_MS, 10) || 30000,
+  // Days-left threshold at which a certificate is treated as "expiring" and
+  // alerts begin. Can be overridden per-monitor via alertThresholdDays.
+  SSL_WARN_THRESHOLD_DAYS: parseInt(process.env.SSL_WARN_THRESHOLD_DAYS, 10) || 14,
+  // Minimum gap between re-notifications for an ongoing SSL problem so a
+  // long-expiring certificate doesn't spam every channel on every check.
+  SSL_RENOTIFY_INTERVAL_HOURS: parseInt(process.env.SSL_RENOTIFY_INTERVAL_HOURS, 10) || 24,
+
   TRUST_PROXY: process.env.TRUST_PROXY === 'true',
 
   // --- Migrations & seeding ---

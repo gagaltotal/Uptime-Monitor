@@ -54,7 +54,17 @@ async function sendTelegram(botToken, chatId, text) {
 function targetLabel(monitor) {
   if (monitor.type === 'http') return monitor.url;
   if (monitor.type === 'tcp') return `${monitor.host}:${monitor.port}`;
-  return monitor.host;
+  if (monitor.host) return monitor.host;
+  // SSL/Domain monitors carry `domain` (and an optional non-443 port) instead.
+  if (monitor.domain) {
+    return monitor.port && monitor.port !== 443 ? `${monitor.domain}:${monitor.port}` : monitor.domain;
+  }
+  return monitor.name || '-';
+}
+
+function formatDate(value) {
+  if (!value) return '-';
+  return new Date(value).toLocaleString('id-ID', { dateStyle: 'full', timeStyle: 'short' });
 }
 
 async function notifyDown(monitor, incident) {
@@ -103,6 +113,82 @@ async function notifySslExpiry(monitor, daysRemaining) {
   await dispatch(monitor, embed, text);
 }
 
+// ---- Dedicated SSL/Domain monitor notifications -------------------------
+// These take an SslMonitor document (fields: name, domain, port, issuer,
+// expiresAt, daysRemaining). They are additive and do not alter the
+// existing monitor/agent notification paths.
+
+function sslTargetLabel(ssl) {
+  return ssl.port && ssl.port !== 443 ? `${ssl.domain}:${ssl.port}` : ssl.domain;
+}
+
+async function notifySslExpiring(sslMonitor, incident) {
+  const target = sslTargetLabel(sslMonitor);
+  const days = sslMonitor.daysRemaining;
+  const embed = {
+    title: `🟡 Sertifikat SSL "${sslMonitor.name}" akan segera kedaluwarsa`,
+    description: `Sertifikat untuk ${target} akan kedaluwarsa dalam ${days} hari.`,
+    color: COLOR_WARN,
+    fields: [
+      { name: 'Domain', value: target, inline: true },
+      { name: 'Issuer', value: sslMonitor.issuer || '-', inline: true },
+      { name: 'Kedaluwarsa', value: formatDate(sslMonitor.expiresAt), inline: false },
+      { name: 'Sisa hari', value: `${days} hari`, inline: true },
+    ],
+    timestamp: new Date().toISOString(),
+  };
+  const text = `🟡 *Sertifikat SSL ${target}* akan kedaluwarsa dalam ${days} hari\nIssuer: ${sslMonitor.issuer || '-'}\nKedaluwarsa: ${formatDate(sslMonitor.expiresAt)}`;
+  await dispatch(sslMonitor, embed, text);
+}
+
+async function notifySslExpired(sslMonitor, incident) {
+  const target = sslTargetLabel(sslMonitor);
+  const embed = {
+    title: `🔴 Sertifikat SSL "${sslMonitor.name}" TELAH KEDALUWARSA`,
+    description: `Sertifikat untuk ${target} sudah kedaluwarsa. Segera perbarui untuk menghindari gangguan.`,
+    color: COLOR_DOWN,
+    fields: [
+      { name: 'Domain', value: target, inline: true },
+      { name: 'Issuer', value: sslMonitor.issuer || '-', inline: true },
+      { name: 'Kedaluwarsa', value: formatDate(sslMonitor.expiresAt), inline: false },
+    ],
+    timestamp: new Date().toISOString(),
+  };
+  const text = `🔴 *Sertifikat SSL ${target}* TELAH KEDALUWARSA\nIssuer: ${sslMonitor.issuer || '-'}\nKedaluwarsa: ${formatDate(sslMonitor.expiresAt)}`;
+  await dispatch(sslMonitor, embed, text);
+}
+
+async function notifySslError(sslMonitor, incident) {
+  const target = sslTargetLabel(sslMonitor);
+  const embed = {
+    title: `⚠️ Gagal memeriksa sertifikat "${sslMonitor.name}"`,
+    description: incident?.cause || sslMonitor.lastMessage || 'Pengecekan TLS gagal.',
+    color: COLOR_DOWN,
+    fields: [{ name: 'Domain', value: target, inline: true }],
+    timestamp: new Date().toISOString(),
+  };
+  const text = `⚠️ Pengecekan SSL *${target}* gagal\n${incident?.cause || sslMonitor.lastMessage || 'Tidak diketahui.'}`;
+  await dispatch(sslMonitor, embed, text);
+}
+
+async function notifySslRecovered(sslMonitor, incident) {
+  const target = sslTargetLabel(sslMonitor);
+  const embed = {
+    title: `🟢 Sertifikat SSL "${sslMonitor.name}" sehat kembali`,
+    description: `Sertifikat untuk ${target} sudah valid dan aman.`,
+    color: COLOR_UP,
+    fields: [
+      { name: 'Domain', value: target, inline: true },
+      { name: 'Issuer', value: sslMonitor.issuer || '-', inline: true },
+      { name: 'Kedaluwarsa', value: formatDate(sslMonitor.expiresAt), inline: false },
+      { name: 'Sisa hari', value: `${sslMonitor.daysRemaining ?? '-'} hari`, inline: true },
+    ],
+    timestamp: new Date().toISOString(),
+  };
+  const text = `🟢 Sertifikat SSL *${target}* sehat kembali. Kedaluwarsa ${formatDate(sslMonitor.expiresAt)} (${sslMonitor.daysRemaining ?? '-'} hari lagi).`;
+  await dispatch(sslMonitor, embed, text);
+}
+
 async function sendTestNotification(channel) {
   const embed = {
     title: '✅ Notifikasi uji coba',
@@ -123,4 +209,13 @@ async function sendTestNotification(channel) {
   }
 }
 
-module.exports = { notifyDown, notifyRecovery, notifySslExpiry, sendTestNotification };
+module.exports = {
+  notifyDown,
+  notifyRecovery,
+  notifySslExpiry,
+  notifySslExpiring,
+  notifySslExpired,
+  notifySslError,
+  notifySslRecovered,
+  sendTestNotification,
+};

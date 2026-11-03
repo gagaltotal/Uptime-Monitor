@@ -151,6 +151,91 @@ function checkSslCertificate(hostname, port, timeoutSec) {
   });
 }
 
+// Formats a certificate's distinguished-name objects into a readable string,
+// e.g. { C: 'US', O: "Let's Encrypt", CN: 'example.com' } → "Let's Encrypt (CN=example.com)".
+function formatDistinguishedName(dn) {
+  if (!dn || typeof dn !== 'object') return null;
+  const preferred = dn.O || dn.CN || dn.OU;
+  const suffix = dn.CN && dn.CN !== preferred ? ` (CN=${dn.CN})` : '';
+  if (preferred) return `${preferred}${suffix}`.slice(0, 300);
+  // Fallback: join whatever fields exist, most-specific first.
+  const parts = Object.entries(dn)
+    .map(([k, v]) => `${k}=${v}`)
+    .join(', ');
+  return parts ? parts.slice(0, 300) : null;
+}
+
+// Rich SSL check used by the SSL/Domain engine. Returns everything the UI
+// needs (issuer, subject, serial, validity window, days remaining) or throws
+// with a human-readable message that becomes the incident "cause".
+function checkSslCertificateDetailed(hostname, port, timeoutSec) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const done = (fn, arg) => {
+      if (settled) return;
+      settled = true;
+      fn(arg);
+    };
+
+    let socket;
+    try {
+      socket = tls.connect({
+        host: hostname,
+        port: port || 443,
+        servername: hostname,
+        rejectUnauthorized: false, // read the cert even when the chain is invalid
+        timeout: (timeoutSec || 10) * 1000,
+      });
+    } catch (err) {
+      reject(err);
+      return;
+    }
+
+    socket.once('secureConnect', () => {
+      // authorizationError is populated when rejectUnauthorized would have
+      // failed (self-signed, hostname mismatch, expired). We still surface the
+      // certificate details, but flag the verification problem.
+      const authorizationError = socket.authorizationError || null;
+      const cert = socket.getPeerCertificate(true);
+      socket.end();
+
+      if (!cert || !cert.valid_to) {
+        done(reject, new Error('Sertifikat tidak ditemukan pada server.'));
+        return;
+      }
+
+      const expiresAt = new Date(cert.valid_to);
+      if (Number.isNaN(expiresAt.getTime())) {
+        done(reject, new Error('Tanggal kedaluwarsa sertifikat tidak valid.'));
+        return;
+      }
+      const validFrom = cert.valid_from ? new Date(cert.valid_from) : null;
+      const daysRemaining = Math.floor((expiresAt.getTime() - Date.now()) / 86400000);
+
+      done(resolve, {
+        domain: hostname,
+        port: port || 443,
+        issuer: formatDistinguishedName(cert.issuer),
+        subject: formatDistinguishedName(cert.subject),
+        serialNumber: cert.serialNumber || null,
+        validFrom,
+        expiresAt,
+        daysRemaining,
+        authorizationError: authorizationError ? String(authorizationError) : null,
+        authorized: !authorizationError,
+      });
+    });
+
+    socket.once('timeout', () => {
+      socket.destroy();
+      done(reject, new Error('Waktu tunggu koneksi TLS habis (timeout).'));
+    });
+    socket.once('error', (err) => {
+      done(reject, err);
+    });
+  });
+}
+
 function msSince(hrtimeStart) {
   const diffNs = process.hrtime.bigint() - hrtimeStart;
   return Number(diffNs / 1000000n);
@@ -169,5 +254,6 @@ module.exports = {
   checkTcpPort,
   checkPing,
   checkSslCertificate,
+  checkSslCertificateDetailed,
   extractHostnameFromUrl,
 };
