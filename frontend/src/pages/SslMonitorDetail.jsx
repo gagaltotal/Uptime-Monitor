@@ -52,13 +52,33 @@ function durationLabel(seconds) {
 
 function StatCard({ label, value, mono, color }) {
   return (
-    <Box sx={{ flex: '1 1 160px' }}>
-      <Typography variant="caption" color="text.secondary">
+    <Box
+      sx={{
+        px: { xs: 2, sm: 1.75, md: 2 },
+        py: { xs: 1.25, sm: 1.5 },
+        minWidth: 0,
+        borderColor: (t) => t.palette.surface.line,
+        borderBottom: { xs: '1px solid', sm: 'none' },
+        borderRight: { xs: 'none', sm: '1px solid' },
+        '&:last-of-type': { borderBottom: 'none', borderRight: 'none' },
+      }}
+    >
+      <Typography
+        variant="caption"
+        color="text.secondary"
+        sx={{ display: 'block', mb: 0.25, lineHeight: 1.35 }}
+      >
         {label}
       </Typography>
       <Typography
-        variant="h6"
-        sx={{ fontFamily: (t) => (mono ? t.typography.fontFamilyMono : undefined), color }}
+        sx={{
+          fontFamily: (t) => (mono ? t.typography.fontFamilyMono : undefined),
+          fontSize: { xs: '1.05rem', sm: '1.15rem', md: '1.25rem' },
+          fontWeight: 700,
+          lineHeight: 1.25,
+          color,
+          wordBreak: 'break-word',
+        }}
       >
         {value}
       </Typography>
@@ -320,11 +340,25 @@ export default function SslMonitorDetail() {
           <Typography variant="h6" sx={{ mb: 1.5 }}>
             Ringkasan
           </Typography>
-          <Stack direction="row" spacing={3} sx={{ flexWrap: 'wrap', rowGap: 2, mb: 2 }}>
-            <StatCard label="Sisa hari" value={ssl.daysRemaining ?? '—'} mono color={(t) => (ssl.daysRemaining < 0 ? t.palette.status.down : undefined)} />
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(3, minmax(0, 1fr))' },
+              border: (t) => `1px solid ${t.palette.surface.line}`,
+              borderRadius: 1.5,
+              overflow: 'hidden',
+              mb: 2,
+            }}
+          >
+            <StatCard
+              label="Sisa hari"
+              value={ssl.daysRemaining ?? '—'}
+              mono
+              color={(t) => (ssl.daysRemaining < 0 ? t.palette.status.down : undefined)}
+            />
             <StatCard label="Insiden aktif" value={ongoing} mono />
             <StatCard label="Total insiden" value={incidents.length} mono />
-          </Stack>
+          </Box>
           <Divider sx={{ mb: 2 }} />
           <DetailRow label="Interval" value={`${Math.round(ssl.interval / 60)} menit`} />
           <DetailRow label="Ambang peringatan" value={`${ssl.alertThresholdDays ?? 14} hari`} />
