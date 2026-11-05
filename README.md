@@ -2,6 +2,34 @@
 
 Aplikasi pemantauan server & situs web **self-hosted** — alternatif open-source untuk UptimeRobot yang bisa Anda jalankan sepenuhnya di infrastruktur Anda sendiri, tanpa data yang mengalir ke pihak ketiga.
 
+## UI Interface
+
+![Screen Capture](https://raw.githubusercontent.com/gagaltotal/Uptime-Monitor/refs/heads/main/images/login.png)
+
+![Screen Capture](https://raw.githubusercontent.com/gagaltotal/Uptime-Monitor/refs/heads/main/images/dashboard1.png)
+
+![Screen Capture](https://raw.githubusercontent.com/gagaltotal/Uptime-Monitor/refs/heads/main/images/dashboard2.png)
+
+![Screen Capture](https://raw.githubusercontent.com/gagaltotal/Uptime-Monitor/refs/heads/main/images/dashboard3.png)
+
+![Screen Capture](https://raw.githubusercontent.com/gagaltotal/Uptime-Monitor/refs/heads/main/images/dashboard4.png)
+
+![Screen Capture](https://raw.githubusercontent.com/gagaltotal/Uptime-Monitor/refs/heads/main/images/dashboard5.png)
+
+![Screen Capture](https://raw.githubusercontent.com/gagaltotal/Uptime-Monitor/refs/heads/main/images/dashboard6.png)
+
+![Screen Capture](https://raw.githubusercontent.com/gagaltotal/Uptime-Monitor/refs/heads/main/images/dashboard7.png)
+
+![Screen Capture](https://raw.githubusercontent.com/gagaltotal/Uptime-Monitor/refs/heads/main/images/dashboard8.png)
+
+![Screen Capture](https://raw.githubusercontent.com/gagaltotal/Uptime-Monitor/refs/heads/main/images/dashboard9.png)
+
+![Screen Capture](https://raw.githubusercontent.com/gagaltotal/Uptime-Monitor/refs/heads/main/images/dashboard10.png)
+
+![Screen Capture](https://raw.githubusercontent.com/gagaltotal/Uptime-Monitor/refs/heads/main/images/dashboard11.png)
+
+![Screen Capture](https://raw.githubusercontent.com/gagaltotal/Uptime-Monitor/refs/heads/main/images/dashboard12.png)
+
 ## Fitur
 
 - **Dashboard real-time** — gambaran umum seluruh monitor, terhubung lewat WebSocket sehingga status ter-update tanpa refresh.
