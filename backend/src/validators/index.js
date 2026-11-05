@@ -44,11 +44,31 @@ const schemas = {
     password: Joi.string().min(1).max(128).required(),
   }),
 
+  // Role/status pengguna. `role` menentukan hak akses (superadmin = penuh,
+  // admin = tanpa manajemen pengguna), `isActive` menentukan apakah akun bisa
+  // login. Keduanya hanya boleh diubah lewat endpoint manajemen pengguna yang
+  // dijaga requireSuperAdmin — bukan lewat /auth/profile (schema updateProfile
+  // di bawah hanya menerima `name`, jadi percobaan mengirim role dari profil
+  // sendiri otomatis dibuang oleh stripUnknown).
   createUser: Joi.object({
     name: Joi.string().trim().min(2).max(100).required(),
     email: Joi.string().trim().lowercase().email().max(254).required(),
     password,
+    role: Joi.string().valid('superadmin', 'admin').default('admin'),
+    isActive: Joi.boolean().default(true),
   }),
+
+  // Semua field opsional, tetapi minimal satu harus diisi agar PATCH kosong
+  // tidak lolos tanpa efek.
+  updateUser: Joi.object({
+    name: Joi.string().trim().min(2).max(100),
+    email: Joi.string().trim().lowercase().email().max(254),
+    password: Joi.string().min(8).max(128).messages({
+      'string.min': 'Kata sandi minimal 8 karakter.',
+    }),
+    role: Joi.string().valid('superadmin', 'admin'),
+    isActive: Joi.boolean(),
+  }).min(1),
 
   changePassword: Joi.object({
     currentPassword: Joi.string().min(1).max(128).required(),

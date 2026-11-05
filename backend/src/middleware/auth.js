@@ -38,9 +38,35 @@ const protect = catchAsync(async (req, res, next) => {
     throw new ApiError(401, 'Sesi sudah tidak berlaku. Silakan login kembali.');
   }
 
+  // An account deactivated by a superadmin must lose access immediately, not
+  // just at its next login — otherwise a disabled user would keep working
+  // until their 15-minute access token expired.
+  if (user.isActive === false) {
+    throw new ApiError(403, 'Akun Anda dinonaktifkan. Hubungi administrator.');
+  }
+
   req.user = user;
   next();
 });
+
+// Role-based guard. Must be mounted *after* protect, since it relies on
+// req.user being populated. requireRole('superadmin') → only superadmins
+// pass; requireRole('admin') → both admin and superadmin pass (a superadmin
+// implicitly holds every admin permission).
+function requireRole(...allowedRoles) {
+  return (req, res, next) => {
+    const role = req.user?.role;
+    if (!role || !allowedRoles.includes(role)) {
+      return next(new ApiError(403, 'Anda tidak memiliki izin untuk tindakan ini.'));
+    }
+    return next();
+  };
+}
+
+// Shorthand for the user-management surface: only a superadmin may create,
+// modify or delete accounts. Admin can manage monitors/settings but
+// deliberately cannot manage users.
+const requireSuperAdmin = requireRole('superadmin');
 
 function signAccessToken(user) {
   return jwt.sign(
@@ -64,4 +90,4 @@ function verifyRefreshToken(token) {
   return payload;
 }
 
-module.exports = { protect, signAccessToken, signRefreshToken, verifyRefreshToken };
+module.exports = { protect, requireRole, requireSuperAdmin, signAccessToken, signRefreshToken, verifyRefreshToken };

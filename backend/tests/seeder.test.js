@@ -80,6 +80,8 @@ const { seedAdmin, generatePassword } = require(path.join(SRC, 'seeders/adminSee
   check('password tidak disimpan plaintext', users[0].password === 'hashed:KataSandiKuat123');
   check('password eksplisit tidak dilaporkan sebagai generated', res.generatedPassword === null);
   check('nama tersimpan', users[0].name === 'Admin Utama');
+  check('akun hasil seed berrole superadmin', users[0].role === 'superadmin');
+  check('akun hasil seed aktif', users[0].isActive === true);
 
   // 4. Re-running is a no-op — this is what makes boot-time seeding safe.
   const passwordBefore = users[0].password;

@@ -18,7 +18,14 @@ const userSchema = new mongoose.Schema(
     // select:false → never returned by default on any query, must be
     // explicitly requested with .select('+password') during login.
     password: { type: String, required: true, select: false },
-    role: { type: String, enum: ['admin'], default: 'admin' },
+    // Role menentukan hak akses:
+    //   superadmin → akses penuh, termasuk mengelola pengguna lain.
+    //   admin      → dapat mengelola data & pengaturan, tetapi TIDAK dapat
+    //                mengelola pengguna (lihat middleware requireRole).
+    role: { type: String, enum: ['superadmin', 'admin'], default: 'admin' },
+    // Status akun. Akun nonaktif tidak dapat login dan seluruh sesinya
+    // ditolak (lihat middleware/auth.js).
+    isActive: { type: Boolean, default: true },
     // Bumped on password change / "log out everywhere" — any JWT issued
     // before the bump (access or refresh) is rejected even if unexpired.
     tokenVersion: { type: Number, default: 0, select: false },

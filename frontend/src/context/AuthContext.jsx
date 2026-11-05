@@ -69,9 +69,24 @@ export function AuthProvider({ children }) {
     return data.user;
   }, []);
 
+  // Role hanya superadmin yang boleh mengelola pengguna (lihat requireSuperAdmin
+  // di backend). Dipakai untuk menyembunyikan menu yang tidak relevan — ini
+  // murni kosmetik, backend tetap menolak permintaan yang tidak berhak.
+  const isSuperAdmin = user?.role === 'superadmin';
+
   return (
     <AuthContext.Provider
-      value={{ user, initializing, needsSetup, login, logout, setupAdmin, refreshMe, isAuthenticated: !!user }}
+      value={{
+        user,
+        initializing,
+        needsSetup,
+        login,
+        logout,
+        setupAdmin,
+        refreshMe,
+        isSuperAdmin,
+        isAuthenticated: !!user,
+      }}
     >
       {children}
     </AuthContext.Provider>

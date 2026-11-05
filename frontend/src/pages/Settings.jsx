@@ -9,11 +9,15 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  Divider,
+  FormControl,
+  FormControlLabel,
   IconButton,
+  InputLabel,
   MenuItem,
   Paper,
+  Select,
   Stack,
+  Switch,
   Tab,
   Tabs,
   TextField,
@@ -22,27 +26,50 @@ import {
 } from '@mui/material';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded';
+import EditRoundedIcon from '@mui/icons-material/EditRounded';
 import ScienceRoundedIcon from '@mui/icons-material/ScienceRounded';
 import { useSnackbar } from 'notistack';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 
+// Role hanya mengubah apa yang tampil di UI — backend tetap menegakkan
+// aturannya lewat middleware requireSuperAdmin.
+const ROLE_META = {
+  superadmin: { label: 'Super Admin', description: 'Akses penuh, termasuk manajemen pengguna.' },
+  admin: { label: 'Admin', description: 'Dapat mengelola data & pengaturan, tanpa manajemen pengguna.' },
+};
+
 export default function Settings() {
+  const { isSuperAdmin } = useAuth();
   const [tab, setTab] = useState(0);
+
+  // Tab "Pengguna" hanya relevan untuk superadmin; menyembunyikannya lebih
+  // jelas daripada menampilkannya lalu gagal memuat data.
+  const tabs = isSuperAdmin
+    ? ['Notifikasi', 'Akun', 'Pengguna']
+    : ['Notifikasi', 'Akun'];
+
   return (
     <Box>
       <Typography variant="h3" sx={{ mb: 3 }}>
         Pengaturan
       </Typography>
-      <Tabs value={tab} onChange={(e, v) => setTab(v)} sx={{ mb: 3, borderBottom: '1px solid', borderColor: 'divider' }}>
-        <Tab label="Notifikasi" />
-        <Tab label="Akun" />
-        <Tab label="Pengguna" />
+      <Tabs
+        value={Math.min(tab, tabs.length - 1)}
+        onChange={(e, v) => setTab(v)}
+        variant="scrollable"
+        scrollButtons="auto"
+        allowScrollButtonsMobile
+        sx={{ mb: 3, borderBottom: '1px solid', borderColor: 'divider' }}
+      >
+        {tabs.map((label) => (
+          <Tab key={label} label={label} />
+        ))}
       </Tabs>
       {tab === 0 && <NotificationsTab />}
       {tab === 1 && <AccountTab />}
-      {tab === 2 && <UsersTab />}
+      {tab === 2 && isSuperAdmin && <UsersTab />}
     </Box>
   );
 }
@@ -354,17 +381,44 @@ function AccountTab() {
 }
 
 // --- Tab: Pengguna -------------------------------------------------------
-const emptyUser = { name: '', email: '', password: '' };
+const emptyUser = { name: '', email: '', password: '', role: 'admin', isActive: true };
+
+function RoleChip({ role }) {
+  const meta = ROLE_META[role] || ROLE_META.admin;
+  return (
+    <Chip
+      size="small"
+      label={meta.label}
+      color={role === 'superadmin' ? 'primary' : 'default'}
+      variant={role === 'superadmin' ? 'filled' : 'outlined'}
+      sx={{ height: 22, fontSize: '0.7rem', fontWeight: 600 }}
+    />
+  );
+}
+
+function StatusChip({ isActive }) {
+  return (
+    <Chip
+      size="small"
+      label={isActive ? 'Aktif' : 'Nonaktif'}
+      color={isActive ? 'success' : 'default'}
+      variant={isActive ? 'outlined' : 'filled'}
+      sx={{ height: 22, fontSize: '0.7rem', fontWeight: 600 }}
+    />
+  );
+}
 
 function UsersTab() {
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, refreshMe } = useAuth();
   const { enqueueSnackbar } = useSnackbar();
   const [users, setUsers] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState(null); // null = mode tambah
   const [form, setForm] = useState(emptyUser);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [togglingId, setTogglingId] = useState(null);
 
   const load = () => api.get('/auth/users').then((r) => setUsers(r.data.users));
 
@@ -373,19 +427,76 @@ function UsersTab() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleCreate = async () => {
+  const openCreate = () => {
+    setEditing(null);
+    setForm(emptyUser);
+    setError('');
+    setDialogOpen(true);
+  };
+
+  const openEdit = (u) => {
+    setEditing(u);
+    setForm({ name: u.name, email: u.email, password: '', role: u.role || 'admin', isActive: u.isActive !== false });
+    setError('');
+    setDialogOpen(true);
+  };
+
+  const handleSubmit = async () => {
     setError('');
     setSaving(true);
     try {
-      const { data } = await api.post('/auth/users', form);
-      setUsers((prev) => [...(prev || []), data.user]);
+      if (editing) {
+        // Kata sandi hanya dikirim bila diisi — itu berarti reset kata sandi
+        // oleh superadmin, dan sesi lama pengguna tersebut otomatis batal.
+        const payload = {
+          name: form.name,
+          email: form.email,
+          role: form.role,
+          isActive: form.isActive,
+        };
+        if (form.password) payload.password = form.password;
+        const { data } = await api.patch(`/auth/users/${editing._id}`, payload);
+        setUsers((prev) => prev.map((u) => (u._id === data.user._id ? data.user : u)));
+        // Bila superadmin mengubah namanya sendiri, nama di header/sidebar
+        // harus ikut berubah tanpa perlu reload halaman.
+        if (data.user._id === currentUser?._id) await refreshMe();
+        enqueueSnackbar('Perubahan pengguna disimpan.', { variant: 'success' });
+      } else {
+        const { data } = await api.post('/auth/users', {
+          name: form.name,
+          email: form.email,
+          password: form.password,
+          role: form.role,
+          isActive: form.isActive,
+        });
+        setUsers((prev) => [...(prev || []), data.user]);
+        enqueueSnackbar('Pengguna ditambahkan.', { variant: 'success' });
+      }
       setDialogOpen(false);
-      setForm(emptyUser);
-      enqueueSnackbar('Pengguna ditambahkan.', { variant: 'success' });
     } catch (err) {
-      setError(err.response?.data?.message || 'Gagal menambahkan pengguna.');
+      setError(err.response?.data?.message || 'Gagal menyimpan pengguna.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Aktif/nonaktifkan akun langsung dari daftar. Backend menolak bila ini akan
+  // mematikan superadmin aktif terakhir, jadi pesan errornya diteruskan apa
+  // adanya agar alasannya jelas.
+  const handleToggle = async (u) => {
+    setTogglingId(u._id);
+    try {
+      // `u.isActive !== false` agar dokumen lama tanpa field ini dianggap
+      // aktif (migrasi 005 juga sudah membackfill, ini hanya jaring kedua).
+      const { data } = await api.patch(`/auth/users/${u._id}`, { isActive: u.isActive === false });
+      setUsers((prev) => prev.map((row) => (row._id === data.user._id ? data.user : row)));
+      enqueueSnackbar(`Akun "${u.name}" ${data.user.isActive ? 'diaktifkan' : 'dinonaktifkan'}.`, {
+        variant: 'success',
+      });
+    } catch (err) {
+      enqueueSnackbar(err.response?.data?.message || 'Gagal mengubah status akun.', { variant: 'error' });
+    } finally {
+      setTogglingId(null);
     }
   };
 
@@ -401,17 +512,29 @@ function UsersTab() {
     }
   };
 
+  const isSelf = (u) => u._id === currentUser?._id;
+  const passwordTooShort = !editing && form.password.length < 8;
+  const resetPasswordTooShort = !!editing && form.password.length > 0 && form.password.length < 8;
+
   return (
     <Box>
-      <Stack direction="row" justifyContent="flex-end" sx={{ mb: 2 }}>
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        justifyContent="space-between"
+        alignItems={{ xs: 'stretch', sm: 'center' }}
+        spacing={2}
+        sx={{ mb: 2 }}
+      >
+        <Typography variant="body2" color="text.secondary" sx={{ maxWidth: { xs: '100%', sm: 520 } }}>
+          Kelola akun yang dapat masuk ke dashboard. <strong>Super Admin</strong> punya akses penuh termasuk mengelola pengguna,{' '}
+          <strong>Admin</strong> hanya dapat mengelola data &amp; pengaturan. Akun <strong>Nonaktif</strong> tidak bisa login.
+        </Typography>
         <Button
           variant="contained"
+          fullWidth
           startIcon={<AddRoundedIcon />}
-          onClick={() => {
-            setForm(emptyUser);
-            setError('');
-            setDialogOpen(true);
-          }}
+          onClick={openCreate}
+          sx={{ flexShrink: 0, width: { xs: '100%', sm: 'auto' }, whiteSpace: 'nowrap' }}
         >
           Tambah Pengguna
         </Button>
@@ -422,41 +545,136 @@ function UsersTab() {
           <Box sx={{ p: 6, textAlign: 'center' }}>
             <Typography color="text.secondary">Memuat…</Typography>
           </Box>
+        ) : users.length === 0 ? (
+          <Box sx={{ p: 6, textAlign: 'center' }}>
+            <Typography color="text.secondary">Belum ada pengguna.</Typography>
+          </Box>
         ) : (
           users.map((u) => (
             <Box
               key={u._id}
-              sx={{ display: 'flex', alignItems: 'center', gap: 2, px: 2.5, py: 1.75, borderBottom: '1px solid', borderColor: 'divider', '&:last-of-type': { borderBottom: 'none' } }}
+              sx={{
+                display: 'flex',
+                flexDirection: { xs: 'column', sm: 'row' },
+                alignItems: { xs: 'stretch', sm: 'center' },
+                gap: { xs: 1.5, sm: 2 },
+                px: { xs: 2, sm: 2.5 },
+                py: { xs: 2, sm: 1.75 },
+                borderBottom: '1px solid',
+                borderColor: 'divider',
+                '&:last-of-type': { borderBottom: 'none' },
+                opacity: u.isActive === false ? 0.65 : 1,
+              }}
             >
-              <Avatar sx={{ width: 32, height: 32, fontSize: '0.85rem', bgcolor: 'primary.main', color: 'primary.contrastText' }}>
-                {u.name?.[0]?.toUpperCase()}
-              </Avatar>
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Typography fontWeight={600} noWrap>
-                  {u.name} {u._id === currentUser?._id && <Chip size="small" label="Anda" sx={{ ml: 1 }} />}
-                </Typography>
-                <Typography variant="body2" color="text.secondary" noWrap>
-                  {u.email}
-                </Typography>
-              </Box>
-              <Tooltip title={u._id === currentUser?._id ? 'Tidak dapat menghapus akun sendiri' : 'Hapus pengguna'}>
-                <span>
-                  <IconButton size="small" color="error" disabled={u._id === currentUser?._id} onClick={() => setDeleteTarget(u)}>
-                    <DeleteRoundedIcon fontSize="small" />
+              {/* Identitas: avatar + nama + email */}
+              <Stack direction="row" spacing={2} alignItems="center" sx={{ flex: 1, minWidth: 0 }}>
+                <Avatar
+                  sx={{
+                    width: 36,
+                    height: 36,
+                    fontSize: '0.85rem',
+                    flexShrink: 0,
+                    bgcolor: 'primary.main',
+                    color: 'primary.contrastText',
+                    opacity: u.isActive === false ? 0.6 : 1,
+                  }}
+                >
+                  {u.name?.[0]?.toUpperCase()}
+                </Avatar>
+                <Box sx={{ minWidth: 0, flex: 1 }}>
+                  <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
+                    <Typography fontWeight={600} noWrap sx={{ minWidth: 0 }}>
+                      {u.name}
+                    </Typography>
+                    {isSelf(u) && <Chip size="small" label="Anda" sx={{ height: 20, fontSize: '0.7rem', flexShrink: 0 }} />}
+                  </Stack>
+                  <Typography variant="body2" color="text.secondary" noWrap title={u.email}>
+                    {u.email}
+                  </Typography>
+                </Box>
+              </Stack>
+
+              {/* Badge + aksi: membungkus di layar sempit, rata kanan di desktop */}
+              <Stack
+                direction="row"
+                alignItems="center"
+                spacing={1}
+                sx={{
+                  flexShrink: 0,
+                  flexWrap: 'wrap',
+                  rowGap: 1,
+                  justifyContent: { xs: 'flex-start', sm: 'flex-end' },
+                  pl: { xs: 6.5, sm: 0 }, // sejajarkan dengan teks (melewati avatar 36px + gap 16px)
+                }}
+              >
+                <RoleChip role={u.role} />
+                <StatusChip isActive={u.isActive !== false} />
+                <Tooltip
+                  title={
+                    isSelf(u)
+                      ? 'Tidak dapat menonaktifkan akun sendiri'
+                      : u.isActive
+                        ? 'Nonaktifkan akun'
+                        : 'Aktifkan akun'
+                  }
+                >
+                  <span>
+                    <Switch
+                      size="small"
+                      checked={u.isActive !== false}
+                      onChange={() => handleToggle(u)}
+                      disabled={isSelf(u) || togglingId === u._id}
+                      inputProps={{ 'aria-label': `Ubah status akun ${u.name}` }}
+                      sx={{ ml: { xs: 0, sm: 0.5 } }}
+                    />
+                  </span>
+                </Tooltip>
+                <Tooltip title="Ubah pengguna">
+                  <IconButton size="small" onClick={() => openEdit(u)} aria-label={`Ubah ${u.name}`}>
+                    <EditRoundedIcon fontSize="small" />
                   </IconButton>
-                </span>
-              </Tooltip>
+                </Tooltip>
+                <Tooltip title={isSelf(u) ? 'Tidak dapat menghapus akun sendiri' : 'Hapus pengguna'}>
+                  <span>
+                    <IconButton
+                      size="small"
+                      color="error"
+                      disabled={isSelf(u)}
+                      onClick={() => setDeleteTarget(u)}
+                      aria-label={`Hapus ${u.name}`}
+                    >
+                      <DeleteRoundedIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              </Stack>
             </Box>
           ))
         )}
       </Paper>
 
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>Tambah Pengguna</DialogTitle>
+      <Dialog
+        open={dialogOpen}
+        onClose={(e, reason) => {
+          // Menutup lewat backdrop/Esc saat sedang menyimpan bisa membuat
+          // perubahan "hilang" tanpa penjelasan — tahan sampai request selesai.
+          if (saving) return;
+          setDialogOpen(false);
+        }}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>{editing ? 'Ubah Pengguna' : 'Tambah Pengguna'}</DialogTitle>
         <DialogContent dividers>
           <Stack spacing={2.5}>
             {error && <Alert severity="error">{error}</Alert>}
-            <TextField label="Nama" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} fullWidth />
+            <TextField
+              label="Nama"
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              autoFocus
+              fullWidth
+            />
             <TextField
               label="Email"
               type="email"
@@ -465,21 +683,88 @@ function UsersTab() {
               fullWidth
             />
             <TextField
-              label="Kata Sandi Sementara"
+              label={editing ? 'Kata Sandi Baru (opsional)' : 'Kata Sandi Sementara'}
               type="password"
               value={form.password}
               onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-              helperText="Minimal 8 karakter"
+              helperText={
+                editing
+                  ? 'Kosongkan jika tidak ingin mengubah kata sandi. Minimal 8 karakter.'
+                  : 'Minimal 8 karakter'
+              }
+              error={passwordTooShort || resetPasswordTooShort}
               fullWidth
+            />
+            <FormControl fullWidth>
+              <InputLabel id="user-role-label">Peran</InputLabel>
+              <Select
+                labelId="user-role-label"
+                label="Peran"
+                value={form.role}
+                onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
+                renderValue={(value) => ROLE_META[value]?.label || value}
+              >
+                {Object.entries(ROLE_META).map(([value, meta]) => (
+                  <MenuItem key={value} value={value}>
+                    <Box sx={{ py: 0.25 }}>
+                      <Typography variant="body2" fontWeight={600}>
+                        {meta.label}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {meta.description}
+                      </Typography>
+                    </Box>
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={form.isActive}
+                  onChange={(e) => setForm((f) => ({ ...f, isActive: e.target.checked }))}
+                  disabled={editing && isSelf({ _id: editing._id })}
+                />
+              }
+              label={
+                <Box>
+                  <Typography variant="body2" fontWeight={600}>
+                    Akun Aktif
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Nonaktifkan untuk mencegah pengguna ini login.
+                  </Typography>
+                </Box>
+              }
             />
           </Stack>
         </DialogContent>
-        <DialogActions sx={{ px: 3, py: 2 }}>
-          <Button color="inherit" onClick={() => setDialogOpen(false)} disabled={saving}>
+        <DialogActions
+          sx={{
+            px: { xs: 2, sm: 3 },
+            py: 2,
+            flexDirection: { xs: 'column-reverse', sm: 'row' },
+            gap: { xs: 1, sm: 0 },
+            '& > :not(:first-of-type)': { ml: { xs: 0, sm: 1 } },
+          }}
+        >
+          <Button fullWidth color="inherit" onClick={() => setDialogOpen(false)} disabled={saving} sx={{ width: { xs: '100%', sm: 'auto' } }}>
             Batal
           </Button>
-          <Button variant="contained" onClick={handleCreate} disabled={saving || !form.name || !form.email || form.password.length < 8}>
-            Tambah
+          <Button
+            fullWidth
+            variant="contained"
+            onClick={handleSubmit}
+            disabled={
+              saving ||
+              !form.name.trim() ||
+              !form.email.trim() ||
+              passwordTooShort ||
+              resetPasswordTooShort
+            }
+            sx={{ width: { xs: '100%', sm: 'auto' } }}
+          >
+            {editing ? 'Simpan' : 'Tambah'}
           </Button>
         </DialogActions>
       </Dialog>

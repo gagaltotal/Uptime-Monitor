@@ -113,26 +113,28 @@ inject(path.join(SRC, 'migrations/001-create-core-indexes.js'), fakeMigration('0
 inject(path.join(SRC, 'migrations/002-normalize-user-emails.js'), fakeMigration('002'));
 inject(path.join(SRC, 'migrations/003-backfill-monitor-scheduling.js'), fakeMigration('003'));
 inject(path.join(SRC, 'migrations/004-create-ssl-monitor-indexes.js'), fakeMigration('004'));
+inject(path.join(SRC, 'migrations/005-backfill-user-roles.js'), fakeMigration('005'));
 
 const runner = require(path.join(SRC, 'migrations/runner.js'));
 
 (async () => {
-  // 1. Discovery finds all four real files and sorts them by numeric prefix.
+  // 1. Discovery finds all five real files and sorts them by numeric prefix.
   const files = runner.loadMigrationFiles();
-  check('discovery menemukan 4 file migrasi', files.length === 4);
+  check('discovery menemukan 5 file migrasi', files.length === 5);
   check(
     'urutan migrasi sesuai prefix numerik',
     files[0].name.startsWith('001') &&
       files[1].name.startsWith('002') &&
       files[2].name.startsWith('003') &&
-      files[3].name.startsWith('004')
+      files[3].name.startsWith('004') &&
+      files[4].name.startsWith('005')
   );
   check('setiap migrasi punya fungsi up()', files.every((f) => typeof f.up === 'function'));
 
   // 2. First run applies everything, in order.
   const first = await runner.up();
-  check('run pertama menerapkan 4 migrasi', first.applied.length === 4);
-  check('dijalankan berurutan 001→002→003→004', calls.join(',') === 'up:001,up:002,up:003,up:004');
+  check('run pertama menerapkan 5 migrasi', first.applied.length === 5);
+  check('dijalankan berurutan 001→002→003→004→005', calls.join(',') === 'up:001,up:002,up:003,up:004,up:005');
   check('lock dilepas setelah selesai', lockDoc === null);
 
   // 3. Second run is a no-op — this is what makes AUTO_MIGRATE on every boot safe.
@@ -141,9 +143,9 @@ const runner = require(path.join(SRC, 'migrations/runner.js'));
   check('run kedua idempoten (0 diterapkan)', second.applied.length === 0);
   check('tidak ada up() yang dipanggil ulang', calls.length === 0);
 
-  // 4. status() reports all four as applied.
+  // 4. status() reports all five as applied.
   const statusRows = await runner.status();
-  check('status melaporkan 4 migrasi', statusRows.length === 4);
+  check('status melaporkan 5 migrasi', statusRows.length === 5);
   check('semua tercatat applied', statusRows.every((r) => r.applied === true));
   check('status menyertakan appliedAt', statusRows.every((r) => r.appliedAt instanceof Date));
 
@@ -151,18 +153,18 @@ const runner = require(path.join(SRC, 'migrations/runner.js'));
   calls.length = 0;
   const rolledBack = await runner.down(1);
   check('down(1) me-rollback tepat 1 migrasi', rolledBack.reverted.length === 1);
-  check('yang di-rollback adalah yang terakhir (004)', rolledBack.reverted[0].startsWith('004'));
-  check('fungsi down() dipanggil', calls.join(',') === 'down:004');
+  check('yang di-rollback adalah yang terakhir (005)', rolledBack.reverted[0].startsWith('005'));
+  check('fungsi down() dipanggil', calls.join(',') === 'down:005');
 
   const afterRollback = await runner.status();
-  check('setelah rollback, 004 jadi pending', afterRollback.find((r) => r.name.startsWith('004')).applied === false);
-  check('001-003 tetap applied', afterRollback.filter((r) => r.applied).length === 3);
+  check('setelah rollback, 005 jadi pending', afterRollback.find((r) => r.name.startsWith('005')).applied === false);
+  check('001-004 tetap applied', afterRollback.filter((r) => r.applied).length === 4);
 
   // 6. Re-running up() re-applies just the rolled-back migration.
   calls.length = 0;
   const reapply = await runner.up();
   check('up() setelah rollback menerapkan ulang 1 migrasi', reapply.applied.length === 1);
-  check('hanya 004 yang dijalankan ulang', calls.join(',') === 'up:004');
+  check('hanya 005 yang dijalankan ulang', calls.join(',') === 'up:005');
 
   // 7. A held lock makes up() back off instead of running concurrently.
   lockDoc = { _id: 'migrations', owner: 'proses-lain:999', acquiredAt: new Date() };
@@ -190,8 +192,8 @@ const runner = require(path.join(SRC, 'migrations/runner.js'));
     threw = true;
   }
   check('migrasi gagal → error dilempar', threw);
-  check('hanya 001 tercatat, 002/003/004 tidak', migrationDocs.length === 1 && migrationDocs[0].name.startsWith('001'));
-  check('003 & 004 tidak ikut dijalankan setelah 002 gagal', !calls.includes('up:003') && !calls.includes('up:004'));
+  check('hanya 001 tercatat, 002/003/004/005 tidak', migrationDocs.length === 1 && migrationDocs[0].name.startsWith('001'));
+  check('003, 004 & 005 tidak ikut dijalankan setelah 002 gagal', !calls.includes('up:003') && !calls.includes('up:004') && !calls.includes('up:005'));
   check('lock tetap dilepas meski gagal (tidak bocor)', lockDoc === null);
 
   // --- report ---

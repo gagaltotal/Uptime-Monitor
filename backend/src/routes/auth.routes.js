@@ -1,7 +1,13 @@
 const express = require('express');
 const User = require('../models/User');
-const { protect, signAccessToken, signRefreshToken, verifyRefreshToken } = require('../middleware/auth');
-const { validate } = require('../validators/index');
+const {
+  protect,
+  requireSuperAdmin,
+  signAccessToken,
+  signRefreshToken,
+  verifyRefreshToken,
+} = require('../middleware/auth');
+const { validate, validateObjectIdParam } = require('../validators/index');
 const { authLimiter, setupLimiter } = require('../middleware/security');
 const { ApiError, catchAsync, sanitizeUser } = require('../utils/helpers');
 const { env } = require('../config/env');
@@ -46,7 +52,10 @@ router.post(
     if (count > 0) {
       throw new ApiError(403, 'Setup sudah selesai. Silakan login.');
     }
-    const user = await User.create(req.body);
+    // Akun pertama selalu superadmin: dialah yang nantinya boleh mengelola
+    // pengguna lain. Tanpa ini, sistem baru akan terkunci — tidak ada satu pun
+    // akun yang berhak membuka menu Pengguna.
+    const user = await User.create({ ...req.body, role: 'superadmin', isActive: true });
     const accessToken = issueSession(res, user);
     res.status(201).json({ accessToken, user: sanitizeUser(user) });
   })
@@ -73,6 +82,13 @@ router.post(
     if (!valid) {
       await user.registerFailedLogin();
       throw genericError();
+    }
+
+    // Status akun diperiksa *setelah* kata sandi terbukti benar, supaya pesan
+    // "akun dinonaktifkan" tidak bisa dipakai untuk menebak email mana yang
+    // terdaftar (account enumeration).
+    if (user.isActive === false) {
+      throw new ApiError(403, 'Akun Anda dinonaktifkan. Hubungi administrator.');
     }
 
     await user.registerSuccessfulLogin();
@@ -102,6 +118,13 @@ router.post(
     if (!user || user.tokenVersion !== payload.tokenVersion) {
       res.clearCookie(REFRESH_COOKIE_NAME, { path: '/api/auth' });
       throw new ApiError(401, 'Sesi tidak valid. Silakan login kembali.');
+    }
+
+    // Sama seperti protect: akun yang dinonaktifkan tidak boleh memperpanjang
+    // sesinya lewat refresh token yang masih tersimpan di cookie.
+    if (user.isActive === false) {
+      res.clearCookie(REFRESH_COOKIE_NAME, { path: '/api/auth' });
+      throw new ApiError(403, 'Akun Anda dinonaktifkan. Hubungi administrator.');
     }
 
     const accessToken = issueSession(res, user);
@@ -163,9 +186,25 @@ router.patch(
   })
 );
 
+// --- Manajemen pengguna (khusus Super Admin) ------------------------------
+// Seluruh endpoint di bawah dijaga requireSuperAdmin: Admin biasa dapat
+// mengelola monitor/pengaturan, tetapi tidak boleh melihat atau mengubah
+// daftar pengguna. Ini yang membedakan kedua role.
+
+// Berapa banyak superadmin yang masih aktif. Dipakai untuk mencegah aksi yang
+// akan mengunci sistem (menghapus/menonaktifkan/menurunkan superadmin aktif
+// terakhir) — tanpa penjaga ini, satu klik bisa membuat tidak ada lagi akun
+// yang berhak mengelola pengguna.
+async function countActiveSuperAdmins(excludeId = null) {
+  const filter = { role: 'superadmin', isActive: true };
+  if (excludeId) filter._id = { $ne: excludeId };
+  return User.countDocuments(filter);
+}
+
 router.get(
   '/users',
   protect,
+  requireSuperAdmin,
   catchAsync(async (req, res) => {
     const users = await User.find().sort({ createdAt: 1 });
     res.json({ users: users.map(sanitizeUser) });
@@ -175,6 +214,7 @@ router.get(
 router.post(
   '/users',
   protect,
+  requireSuperAdmin,
   validate('createUser'),
   catchAsync(async (req, res) => {
     const existing = await User.findOne({ email: req.body.email });
@@ -184,14 +224,85 @@ router.post(
   })
 );
 
+// PATCH /api/auth/users/:id — ubah nama, email, role, status, atau reset kata
+// sandi. Semua field opsional (lihat schema updateUser).
+router.patch(
+  '/users/:id',
+  protect,
+  requireSuperAdmin,
+  validateObjectIdParam(),
+  validate('updateUser'),
+  catchAsync(async (req, res) => {
+    const user = await User.findById(req.params.id).select('+tokenVersion');
+    if (!user) throw new ApiError(404, 'Pengguna tidak ditemukan.');
+
+    const { name, email, password, role, isActive } = req.body;
+
+    // Email baru harus unik — cek dulu agar pesannya jelas, bukan error
+    // duplicate-key mentah dari Mongo.
+    if (email && email !== user.email) {
+      const clash = await User.findOne({ email, _id: { $ne: user._id } });
+      if (clash) throw new ApiError(409, 'Email sudah digunakan.');
+      user.email = email;
+    }
+
+    if (name !== undefined) user.name = name;
+
+    // Menurunkan role atau menonaktifkan superadmin aktif terakhir akan
+    // mengunci sistem — tolak dengan pesan yang menjelaskan alasannya.
+    const losingSuperAdmin =
+      user.role === 'superadmin' &&
+      user.isActive === true &&
+      ((role !== undefined && role !== 'superadmin') || isActive === false);
+    if (losingSuperAdmin && (await countActiveSuperAdmins(user._id)) === 0) {
+      throw new ApiError(400, 'Tidak dapat menurunkan atau menonaktifkan Super Admin aktif terakhir.');
+    }
+
+    if (role !== undefined) user.role = role;
+    if (isActive !== undefined) user.isActive = isActive;
+
+    // Reset kata sandi oleh superadmin: password di-hash ulang oleh pre-save
+    // hook, dan tokenVersion dinaikkan agar sesi lama pengguna tersebut
+    // langsung batal.
+    if (password) {
+      user.password = password;
+      user.tokenVersion += 1;
+    }
+
+    // Menonaktifkan akun juga membatalkan seluruh sesinya seketika, bukan
+    // menunggu access token 15 menit kedaluwarsa.
+    if (isActive === false) {
+      user.tokenVersion += 1;
+    }
+
+    await user.save();
+    res.json({ user: sanitizeUser(user) });
+  })
+);
+
 router.delete(
   '/users/:id',
   protect,
+  requireSuperAdmin,
+  validateObjectIdParam(),
   catchAsync(async (req, res) => {
+    const target = await User.findById(req.params.id);
+    if (!target) throw new ApiError(404, 'Pengguna tidak ditemukan.');
+
+    // Tidak boleh menghapus akun sendiri — mencegah superadmin mengunci
+    // dirinya keluar secara tidak sengaja.
+    if (target._id.equals(req.user._id)) {
+      throw new ApiError(400, 'Tidak dapat menghapus akun Anda sendiri.');
+    }
+
     const total = await User.estimatedDocumentCount();
     if (total <= 1) throw new ApiError(400, 'Tidak dapat menghapus satu-satunya pengguna yang tersisa.');
-    const deleted = await User.findByIdAndDelete(req.params.id);
-    if (!deleted) throw new ApiError(404, 'Pengguna tidak ditemukan.');
+
+    if (target.role === 'superadmin' && target.isActive && (await countActiveSuperAdmins(target._id)) === 0) {
+      throw new ApiError(400, 'Tidak dapat menghapus Super Admin aktif terakhir.');
+    }
+
+    await User.findByIdAndDelete(req.params.id);
     res.status(204).end();
   })
 );

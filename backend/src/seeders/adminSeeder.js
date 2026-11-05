@@ -78,6 +78,11 @@ async function seedAdmin({ force = false, name, email, password } = {}) {
     existing.tokenVersion += 1;
     existing.failedLoginAttempts = 0;
     existing.lockUntil = undefined;
+    // Akun yang di-seed lewat environment adalah akun pemilik instance, jadi
+    // selalu dijadikan superadmin + aktif. Tanpa ini, instance yang di-seed
+    // otomatis tidak akan punya siapa pun yang boleh mengelola pengguna.
+    existing.role = 'superadmin';
+    existing.isActive = true;
     await existing.save();
 
     if (wasGenerated) {
@@ -91,7 +96,13 @@ async function seedAdmin({ force = false, name, email, password } = {}) {
     return { status: 'updated', email: finalEmail, generatedPassword: wasGenerated ? finalPassword : null };
   }
 
-  const user = await User.create({ name: finalName, email: finalEmail, password: finalPassword });
+  const user = await User.create({
+    name: finalName,
+    email: finalEmail,
+    password: finalPassword,
+    role: 'superadmin',
+    isActive: true,
+  });
 
   if (wasGenerated) {
     banner([
