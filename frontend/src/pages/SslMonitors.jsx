@@ -71,9 +71,10 @@ function SslRow({ ssl, onEdit, onDelete, onToggle, onCheck, checking }) {
       sx={{
         position: 'relative',
         display: 'flex',
-        alignItems: 'center',
-        gap: 2,
-        px: 2,
+        alignItems: { xs: 'flex-start', lg: 'center' },
+        flexWrap: { xs: 'wrap', lg: 'nowrap' },
+        gap: { xs: 1, lg: 2 },
+        px: { xs: 1.5, sm: 2 },
         py: 1.5,
         cursor: 'pointer',
         borderBottom: (t) => `1px solid ${t.palette.surface.line}`,
@@ -83,10 +84,10 @@ function SslRow({ ssl, onEdit, onDelete, onToggle, onCheck, checking }) {
     >
       <Box sx={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, bgcolor: stripe }} />
 
-      <Box sx={{ minWidth: 0, flex: '1 1 auto' }}>
-        <Stack direction="row" spacing={1} alignItems="center">
+      <Box sx={{ minWidth: 0, flex: '1 1 0' }}>
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0, flexWrap: 'wrap', rowGap: 0.5 }}>
           <SslStatusDot status={ssl.status} isActive={ssl.isActive} />
-          <Typography sx={{ fontWeight: 600 }} noWrap>
+          <Typography sx={{ minWidth: 0, fontWeight: 600, overflowWrap: 'anywhere' }}>
             {ssl.name}
           </Typography>
           {ssl.ongoingIncidents > 0 && (
@@ -101,8 +102,12 @@ function SslRow({ ssl, onEdit, onDelete, onToggle, onCheck, checking }) {
         </Stack>
         <Typography
           variant="caption"
-          noWrap
-          sx={{ fontFamily: (t) => t.typography.fontFamilyMono, color: 'text.secondary' }}
+          sx={{
+            display: 'block',
+            overflowWrap: 'anywhere',
+            fontFamily: (t) => t.typography.fontFamilyMono,
+            color: 'text.secondary',
+          }}
         >
           {sslTarget(ssl)}
           {ssl.issuer ? ` · ${ssl.issuer}` : ''}
@@ -116,7 +121,7 @@ function SslRow({ ssl, onEdit, onDelete, onToggle, onCheck, checking }) {
         ) : null}
       </Box>
 
-      <Box sx={{ width: 160, display: { xs: 'none', md: 'block' } }}>
+      <Box sx={{ width: 160, display: { xs: 'none', lg: 'block' } }}>
         <Typography variant="caption" color="text.secondary" display="block">
           Kedaluwarsa
         </Typography>
@@ -125,7 +130,7 @@ function SslRow({ ssl, onEdit, onDelete, onToggle, onCheck, checking }) {
         </Typography>
       </Box>
 
-      <Box sx={{ width: 110, display: { xs: 'none', sm: 'block' } }}>
+      <Box sx={{ width: 110, display: { xs: 'none', lg: 'block' } }}>
         <Typography variant="caption" color="text.secondary" display="block">
           Sisa
         </Typography>
@@ -141,28 +146,69 @@ function SslRow({ ssl, onEdit, onDelete, onToggle, onCheck, checking }) {
         </Typography>
       </Box>
 
-      <Box sx={{ width: 140, display: { xs: 'none', sm: 'block' } }}>
+      <Box sx={{ width: 140, display: { xs: 'none', lg: 'block' } }}>
         <SslStatusChip status={ssl.status} isActive={ssl.isActive} />
       </Box>
 
-      <Tooltip title="Periksa sekarang">
-        <span>
-          <IconButton
-            size="small"
-            onClick={(e) => {
-              e.stopPropagation();
-              onCheck(ssl);
-            }}
-            disabled={checking}
-          >
-            {checking ? <CircularProgress size={16} /> : <RefreshRoundedIcon fontSize="small" />}
-          </IconButton>
-        </span>
-      </Tooltip>
+      <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0, ml: 'auto' }}>
+        <Tooltip title="Periksa sekarang">
+          <span>
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                onCheck(ssl);
+              }}
+              disabled={checking}
+            >
+              {checking ? <CircularProgress size={16} /> : <RefreshRoundedIcon fontSize="small" />}
+            </IconButton>
+          </span>
+        </Tooltip>
 
-      <IconButton size="small" aria-label={`Menu tindakan ${ssl.name}`} onClick={openMenu}>
-        <MoreVertRoundedIcon fontSize="small" />
-      </IconButton>
+        <IconButton size="small" aria-label={`Menu tindakan ${ssl.name}`} onClick={openMenu}>
+          <MoreVertRoundedIcon fontSize="small" />
+        </IconButton>
+      </Box>
+
+      <Box
+        sx={{
+          display: { xs: 'grid', lg: 'none' },
+          gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(4, minmax(0, 1fr))' },
+          gap: 1.5,
+          width: '100%',
+          pt: 0.5,
+        }}
+      >
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="caption" color="text.secondary" display="block">
+            Kedaluwarsa
+          </Typography>
+          <Typography variant="body2" sx={{ overflowWrap: 'anywhere', fontFamily: (t) => t.typography.fontFamilyMono }}>
+            {formatDate(ssl.expiresAt)}
+          </Typography>
+        </Box>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="caption" color="text.secondary" display="block">
+            Sisa
+          </Typography>
+          <DaysLeft days={ssl.daysRemaining} />
+        </Box>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="caption" color="text.secondary" display="block">
+            Status
+          </Typography>
+          <SslStatusChip status={ssl.status} isActive={ssl.isActive} />
+        </Box>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="caption" color="text.secondary" display="block">
+            Terakhir dinotifikasi
+          </Typography>
+          <Typography variant="body2" sx={{ overflowWrap: 'anywhere', fontFamily: (t) => t.typography.fontFamilyMono }}>
+            {lastNotifiedLabel(ssl.lastNotifiedAt)}
+          </Typography>
+        </Box>
+      </Box>
       <Menu anchorEl={anchorEl} open={!!anchorEl} onClose={closeMenu} onClick={(event) => event.stopPropagation()}>
         <MenuItem
           onClick={(event) => {
