@@ -101,6 +101,61 @@ const { seedAdmin, generatePassword } = require(path.join(SRC, 'seeders/adminSee
   check('--force mereset percobaan login gagal', users[0].failedLoginAttempts === 0);
   check('--force membuka kunci akun', users[0].lockUntil === undefined);
 
+  // 5b. Akun lama (dibuat sebelum fitur role ada) tersimpan sebagai 'admin'.
+  // Menyetel role secara eksplisit harus menaikkannya TANPA menyentuh kata
+  // sandi — inilah jalur pemulihan untuk instance yang tak punya superadmin.
+  users[0].role = 'admin';
+  users[0].password = 'hashed:PasswordLamaYangTidakBolehBerubah';
+  const versionBeforeRoleUpdate = users[0].tokenVersion;
+  res = await seedAdmin({ email: 'admin@contoh.com', role: 'superadmin' });
+  check('role eksplisit → status role-updated', res.status === 'role-updated');
+  check('role eksplisit → role naik jadi superadmin', users[0].role === 'superadmin');
+  check('role eksplisit → role sebelumnya dilaporkan', res.previousRole === 'admin');
+  check(
+    'role eksplisit → kata sandi TIDAK diubah',
+    users[0].password === 'hashed:PasswordLamaYangTidakBolehBerubah'
+  );
+  check(
+    'role eksplisit → tokenVersion tidak diubah (sesi tetap valid)',
+    users[0].tokenVersion === versionBeforeRoleUpdate
+  );
+
+  // 5c. Role yang diminta sama dengan yang sudah ada → tidak ada penulisan.
+  res = await seedAdmin({ email: 'admin@contoh.com', role: 'superadmin' });
+  check('role sudah sesuai → dilewati (bukan role-updated)', res.status === 'skipped');
+
+  // 5d. Tanpa role eksplisit, akun lama TIDAK boleh diubah sama sekali.
+  users[0].role = 'admin';
+  res = await seedAdmin({ email: 'admin@contoh.com' });
+  check('tanpa role eksplisit → akun lama tidak disentuh', res.status === 'skipped');
+  check('tanpa role eksplisit → role admin dipertahankan', users[0].role === 'admin');
+
+  // 5e. Akun lama tanpa field isActive (mis. dibuat sebelum field itu ada) harus
+  // diaktifkan sekalian, kalau tidak seeder "berhasil" tapi akun tetap tak bisa
+  // login karena isActive === false.
+  users[0].role = 'admin';
+  users[0].isActive = undefined;
+  await seedAdmin({ email: 'admin@contoh.com', role: 'superadmin' });
+  check('role-updated pada akun tanpa isActive → isActive jadi true', users[0].isActive === true);
+
+  // 5f. Nilai role yang tidak dikenal ditolak, bukan gagal diam-diam.
+  users[0].role = 'admin';
+  threw = false;
+  try {
+    await seedAdmin({ email: 'admin@contoh.com', role: 'root' });
+  } catch (e) {
+    threw = /role tidak dikenal/i.test(e.message) && users[0].role === 'admin';
+  }
+  check('role tidak valid → error & role tidak berubah', threw);
+
+  // 5g. --role admin pada akun superadmin harus benar-benar menurunkan role
+  // (bukan dianggap "sudah superadmin"). Menutup kemungkinan nilai 'admin'
+  // hilang saat CLI mem-parse argumen.
+  users[0].role = 'superadmin';
+  res = await seedAdmin({ email: 'admin@contoh.com', role: 'admin' });
+  check('--role admin → benar-benar menurunkan role', res.status === 'role-updated' && users[0].role === 'admin');
+  users[0].role = 'superadmin';
+
   // 6. Password too short is rejected.
   threw = false;
   try {
@@ -135,6 +190,54 @@ const { seedAdmin, generatePassword } = require(path.join(SRC, 'seeders/adminSee
   check('membaca SEED_ADMIN_EMAIL dari environment', res.email === 'dari-env@contoh.com');
   check('membaca SEED_ADMIN_PASSWORD dari environment', users[0].password === 'hashed:PasswordDariEnv123');
   check('membaca SEED_ADMIN_NAME dari environment', users[0].name === 'Admin Env');
+  check('tanpa SEED_ADMIN_ROLE → akun baru tetap superadmin', users[0].role === 'superadmin');
+
+  // 10. SEED_ADMIN_ROLE dari environment ikut dipakai — dan tetap hanya
+  // menyentuh role, bukan kata sandi, pada akun yang sudah ada.
+  process.env.SEED_ADMIN_ROLE = 'admin';
+  delete require.cache[require.resolve(path.join(SRC, 'config/env.js'))];
+  delete require.cache[require.resolve(path.join(SRC, 'seeders/adminSeeder.js'))];
+  const seeder3 = require(path.join(SRC, 'seeders/adminSeeder.js'));
+  users[0].role = 'superadmin';
+  const passwordSebelum = users[0].password;
+  res = await seeder3.seedAdmin();
+  check('membaca SEED_ADMIN_ROLE dari environment', users[0].role === 'admin');
+  check('SEED_ADMIN_ROLE tidak mengubah kata sandi', users[0].password === passwordSebelum);
+  check('SEED_ADMIN_ROLE → status role-updated', res.status === 'role-updated');
+  delete process.env.SEED_ADMIN_ROLE;
+
+  // 11. Parser argumen CLI. `npm run seed` menyisipkan literal "admin" sebagai
+  // sub-command, dan pembuangan yang ceroboh pernah ikut menghapus NILAI dari
+  // `--role admin` — jadi nilai tersebut diuji secara eksplisit di sini.
+  const { parseArgs, stripSubcommand } = require(path.join(SRC, 'cli/seed.js'));
+
+  check('CLI: sub-command "admin" dibuang', JSON.stringify(stripSubcommand(['admin'])) === '[]');
+  check(
+    'CLI: hanya sub-command pertama yang dibuang',
+    JSON.stringify(stripSubcommand(['admin', 'admin@contoh.com'])) === '["admin@contoh.com"]'
+  );
+  check(
+    'CLI: --role admin → nilainya TIDAK ikut terhapus',
+    parseArgs(stripSubcommand(['admin', '--role', 'admin'])).role === 'admin'
+  );
+  check(
+    'CLI: --role superadmin terbaca',
+    parseArgs(stripSubcommand(['admin', '--role', 'superadmin'])).role === 'superadmin'
+  );
+  check(
+    'CLI: --role admin tidak menghilangkan flag lain',
+    JSON.stringify(parseArgs(stripSubcommand(['admin', '--email', 'a@b.com', '--role', 'admin']))) ===
+      JSON.stringify({ force: false, email: 'a@b.com', role: 'admin' })
+  );
+  check(
+    'CLI: tanpa --role → role undefined (bukan string kosong)',
+    parseArgs(stripSubcommand(['admin'])).role === undefined
+  );
+  check(
+    'CLI: --force tetap dikenali bersama --role',
+    JSON.stringify(parseArgs(stripSubcommand(['admin', '--force', '--role', 'superadmin']))) ===
+      JSON.stringify({ force: true, role: 'superadmin' })
+  );
 
   console.log('');
   let pass = 0;

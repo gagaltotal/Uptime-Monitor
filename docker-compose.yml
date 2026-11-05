@@ -44,6 +44,10 @@ services:
       SEED_ADMIN_NAME: ${SEED_ADMIN_NAME:-Administrator}
       SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
+      # Kosong secara default: akun yang sudah ada tidak akan pernah diubah
+      # role-nya oleh restart biasa. Isi dengan "superadmin" untuk memberi
+      # akses superadmin pada akun lama yang telanjur dibuat sebagai "admin".
+      SEED_ADMIN_ROLE: ${SEED_ADMIN_ROLE:-}
     depends_on:
       mongodb:
         condition: service_healthy

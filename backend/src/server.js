@@ -25,11 +25,14 @@ async function main() {
   }
 
   // Optional bootstrap of the first admin account. Idempotent — an existing
-  // account is left untouched, so this is harmless on every restart.
+  // account is left untouched (including its role) unless SEED_ADMIN_ROLE is
+  // set, so this is harmless on every restart.
   if (env.AUTO_SEED_ADMIN) {
     const result = await seedAdmin();
     if (result.status === 'skipped' && result.email) {
       logger.debug(`Seeder admin dilewati: ${result.reason}`);
+    } else if (result.status === 'role-updated') {
+      logger.info(`Seeder: role "${result.email}" diselaraskan menjadi ${result.role}.`);
     }
   }
 

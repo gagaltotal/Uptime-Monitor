@@ -58,6 +58,15 @@ const env = {
   SEED_ADMIN_NAME: process.env.SEED_ADMIN_NAME || 'Administrator',
   SEED_ADMIN_EMAIL: process.env.SEED_ADMIN_EMAIL || '',
   SEED_ADMIN_PASSWORD: process.env.SEED_ADMIN_PASSWORD || '',
+  // Opsional. String kosong berarti "operator tidak menentukan role": akun baru
+  // dibuat sebagai superadmin (perilaku lama) dan akun yang sudah ada tidak
+  // disentuh sama sekali.
+  //
+  // Bila DIISI, nilainya juga dipaksakan ke akun yang sudah ada (tanpa mengubah
+  // kata sandinya). Inilah cara memberi role superadmin pada user admin yang
+  // telanjur dibuat sebelum fitur role ada:
+  //   SEED_ADMIN_ROLE=superadmin  →  docker compose up -d --build
+  SEED_ADMIN_ROLE: (process.env.SEED_ADMIN_ROLE || '').trim().toLowerCase(),
   // Seeding on boot is opt-in: it only happens when SEED_ADMIN_EMAIL is set,
   // so the default first-run experience stays the interactive /setup page.
   AUTO_SEED_ADMIN:
@@ -120,6 +129,16 @@ function assertValidEnv() {
       console.error('[FATAL] SEED_ADMIN_PASSWORD minimal 8 karakter.');
       process.exit(1);
     }
+  }
+
+  // Salah tulis role di sini akan tampak sebagai "role tidak berubah" tanpa
+  // pesan apa pun, jadi nilai yang tidak dikenal dihentikan saat startup.
+  if (env.SEED_ADMIN_ROLE && !['superadmin', 'admin'].includes(env.SEED_ADMIN_ROLE)) {
+    console.error(
+      `[FATAL] SEED_ADMIN_ROLE tidak dikenal: "${env.SEED_ADMIN_ROLE}". ` +
+        'Gunakan "superadmin" atau "admin", atau kosongkan untuk melewatinya.'
+    );
+    process.exit(1);
   }
 }
 

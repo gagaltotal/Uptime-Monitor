@@ -12,6 +12,7 @@ Aplikasi pemantauan server & situs web **self-hosted** — alternatif open-sourc
 - **Deteksi insiden otomatis** — setiap kali layanan down, insiden tercatat lengkap dengan durasi.
 - **Notifikasi Discord, Slack & Telegram** saat layanan down, pulih kembali, atau SSL akan kedaluwarsa.
 - **Halaman status publik** yang bisa dibuat dan dibagikan ke pengguna Anda (`/status/nama-halaman`).
+- **Manajemen pengguna berperan (role)** — dua tingkat akses: **Super Admin** (akses penuh, termasuk mengelola pengguna) dan **Admin** (mengelola monitor & pengaturan, tanpa manajemen pengguna). Setiap akun juga punya status **Aktif/Nonaktif** yang bisa diubah kapan saja. Lihat bagian [Peran & Status Pengguna](#peran--status-pengguna).
 - **Pemantauan melalui Agent** — pasang agen di server Anda dan dapatkan detail CPU, memori, disk, jaringan, proses, dan uptime host secara real-time. Bisa digunakan untuk memantau host yang tidak bisa diakses dari luar (di balik NAT/firewall).
 - **Pemantauan service Linux** — agent mendeteksi service systemd/OpenRC yang gagal (`failed`/`crashed`) dan menampilkan namanya di halaman detail agent, serta membuat insiden otomatis.
 - **Panduan instalasi Agent di dashboard** — langkah instalasi lengkap dan tombol unduh file agent langsung dari menu Agent.
@@ -51,7 +52,7 @@ docker compose up -d --build
 open http://localhost:3000
 ```
 
-Saat pertama kali dibuka, Anda akan diarahkan ke halaman **Setup** untuk membuat akun admin. Setelah akun pertama dibuat, pendaftaran publik otomatis nonaktif — pengguna tambahan hanya bisa dibuat oleh admin yang sudah login (menu **Pengaturan → Pengguna**).
+Saat pertama kali dibuka, Anda akan diarahkan ke halaman **Setup** untuk membuat akun admin. Akun pertama ini otomatis berperan **Super Admin**. Setelah akun pertama dibuat, pendaftaran publik otomatis nonaktif — pengguna tambahan hanya bisa dibuat oleh Super Admin yang sudah login (menu **Pengaturan → Pengguna**).
 
 ### Menghentikan / memperbarui
 
@@ -75,6 +76,8 @@ docker compose logs -f backend   # lihat log backend (mis. debug notifikasi)
 | `SSL_TICK_INTERVAL_MS` | Opsional | Seberapa sering engine SSL memeriksa jadwal pengecekan (default `30000` ms). |
 | `SSL_WARN_THRESHOLD_DAYS` | Opsional | Ambang hari peringatan default untuk monitor SSL baru (default `14` hari). |
 | `SSL_RENOTIFY_INTERVAL_HOURS` | Opsional | Jeda minimal antar notifikasi berulang untuk insiden SSL yang sama (default `24` jam). |
+| `SEED_ADMIN_EMAIL` | Opsional | Jika diisi, akun admin dibuat otomatis saat backend start (tanpa halaman `/setup`). Lihat [Seeder Admin](#seeder-admin). |
+| `SEED_ADMIN_ROLE` | Opsional | `superadmin` atau `admin`. Kosong = akun baru jadi `superadmin` dan role akun lama dipertahankan. Lihat [Memberi Role Superadmin pada Akun Lama](#memberi-role-superadmin-pada-akun-lama). |
 
 ### Mengakses dari domain atau IP LAN lain
 
@@ -128,6 +131,7 @@ Secara default aplikasi memakai halaman **/setup** di browser untuk membuat admi
 SEED_ADMIN_EMAIL=admin@contoh.com
 SEED_ADMIN_NAME=Administrator
 SEED_ADMIN_PASSWORD=          # kosongkan → sistem buatkan kata sandi acak
+# SEED_ADMIN_ROLE=superadmin  # opsional, lihat bagian di bawah
 ```
 
 Jika `SEED_ADMIN_PASSWORD` dikosongkan, seeder membuat kata sandi acak yang kuat dan menampilkannya **sekali** di log:
@@ -144,11 +148,68 @@ Menjalankan seeder manual:
 docker compose exec backend npm run seed                       # buat admin dari .env
 docker compose exec backend npm run seed:force                 # reset kata sandi admin
 docker compose exec backend npm run seed -- --email a@b.com --password "RahasiaKuat123"
+docker compose exec backend npm run seed -- --role superadmin  # ubah role akun yang sudah ada
 ```
 
-Seeder bersifat idempoten: jika akun sudah ada, akun tersebut **tidak disentuh** kecuali Anda memakai `--force`. Reset dengan `--force` juga otomatis membatalkan seluruh sesi login lama akun tersebut.
+Seeder bersifat idempoten: jika akun sudah ada, akun tersebut **tidak disentuh** kecuali Anda memakai `--force` atau menyetel `--role`/`SEED_ADMIN_ROLE` secara eksplisit (lihat bagian berikut).
 
 > **Lupa kata sandi admin?** Gunakan `docker compose exec backend npm run seed:force` (dengan `SEED_ADMIN_EMAIL` terisi di `.env`). Kata sandi baru akan ditampilkan di log.
+
+### Peran & Status Pengguna
+
+Setiap akun punya dua atribut yang bisa diatur dari **Pengaturan → Pengguna**:
+
+| Atribut | Nilai | Efek |
+|---|---|---|
+| **Peran** | `superadmin` | Akses penuh — termasuk menu **Pengguna** (buat/ubah/hapus akun). |
+| | `admin` | Dapat mengelola monitor, SSL, agent, notifikasi, dan halaman status — tetapi **tidak** bisa mengelola pengguna. Menu Pengguna tidak muncul untuknya. |
+| **Status** | `Aktif` | Akun dapat login seperti biasa. |
+| | `Nonaktif` | Akun tidak bisa login **dan** seluruh sesinya langsung diputus (bukan menunggu token 15 menit kedaluwarsa). |
+
+Akun **pertama** yang dibuat (lewat `/setup` atau seeder) selalu `superadmin` + aktif, karena dialah yang berhak mengatur sisanya.
+
+Beberapa penjaga keselamatan penting:
+
+- **Tidak bisa menghapus akun sendiri** dan **tidak bisa menghapus pengguna terakhir yang tersisa**.
+- **Tidak bisa menurunkan, menonaktifkan, atau menghapus Super Admin aktif terakhir.** Tanpa penjaga ini, satu klik bisa membuat tidak ada satu pun akun yang berhak membuka menu Pengguna — sistem terkunci.
+- **Reset kata sandi oleh Super Admin** otomatis membatalkan semua sesi login pengguna tersebut.
+- **Menonaktifkan akun** juga langsung membatalkan semua sesinya.
+- Field `role` dan `isActive` tidak bisa diubah dari halaman **Akun → Profil** — hanya endpoint manajemen pengguna (khusus Super Admin) yang menerimanya.
+
+### Memberi Role Superadmin pada Akun Lama
+
+**Situasi:** Anda sudah men-deploy versi lama (sebelum fitur role ada), lalu menarik pembaruan terbaru. Akun admin lama Anda tersimpan sebagai `admin` — karena dulu memang hanya itu satu-satunya role — sehingga menu **Pengguna** tidak muncul dan tidak ada cara menaikkannya dari dalam aplikasi.
+
+Migrasi otomatis **tidak** menaikkan role akun yang sudah ada (nilainya sengaja dipertahankan agar perubahan yang Anda lakukan dari menu Pengguna tidak pernah ditimpa). Gunakan salah satu dari tiga cara berikut:
+
+**Cara 1 — lewat `.env` (disarankan untuk Docker):**
+
+```bash
+# .env
+SEED_ADMIN_ROLE=superadmin
+```
+
+```bash
+docker compose up -d --build
+docker compose logs --tail=30 backend | grep -i "role"
+# [INFO] Seeder: role akun "admin@contoh.com" diubah dari "admin" menjadi "superadmin" (kata sandi tidak diubah).
+```
+
+Variabel ini membutuhkan `SEED_ADMIN_EMAIL` yang menunjuk ke akun tersebut dan hanya berpengaruh saat backend start.
+
+> **Setelah berhasil, hapus/komentari kembali `SEED_ADMIN_ROLE`.** Selama variabel ini terisi, setiap restart akan memaksa role akun tersebut kembali ke nilai itu — termasuk bila Anda sengaja menurunkannya lewat menu Pengguna.
+
+**Cara 2 — sekali jalan lewat CLI (tanpa menyentuh `.env`):**
+
+```bash
+docker compose exec backend npm run seed -- --role superadmin
+```
+
+Kata sandi akun tidak diubah, dan seluruh sesi login yang sedang berjalan tetap valid.
+
+**Cara 3 — dari UI, jika Anda sudah punya superadmin lain:** buka **Pengaturan → Pengguna**, klik ikon pensil pada akun tersebut, lalu ubah **Peran** menjadi *Super Admin*.
+
+> Perintah di atas **tidak** mengubah kata sandi, jadi akun lama Anda tetap bisa login dengan kredensial yang sama. Jika kata sandinya juga lupa, tambahkan `--force` (atau pakai `npm run seed:force`) untuk me-reset sekaligus.
 
 ## Keamanan
 
@@ -161,6 +222,7 @@ Aplikasi ini dirancang dengan asumsi akan diekspos ke internet (untuk memantau s
 - **Bypass token / CSRF** — access token JWT berumur pendek (15 menit) disimpan **di memori**, bukan `localStorage` (kebal dari pencurian via XSS). Refresh token disimpan di cookie `httpOnly` + `sameSite` (tidak bisa dibaca JavaScript maupun dikirim otomatis lintas situs), dan dirotasi setiap dipakai. Mengganti password otomatis membatalkan seluruh sesi lain via mekanisme `tokenVersion`.
 - **Brute-force login** — rate limiting berlapis (per-IP di level aplikasi) ditambah penguncian akun otomatis 15 menit setelah 5x kegagalan login.
 - **Mass assignment** — validasi Joi memakai `stripUnknown: true`, sehingga field yang tidak didefinisikan skema (mis. mencoba mengirim `role` atau `tokenVersion` lewat body request) otomatis dibuang sebelum mencapai database.
+- **Kontrol akses berbasis peran** — endpoint manajemen pengguna dijaga oleh middleware `requireSuperAdmin` di sisi server, bukan hanya disembunyikan di UI. Admin biasa yang mengirim permintaan langsung ke API tetap ditolak `403`, dan kolom `role`/`isActive` tidak bisa diubah lewat endpoint profil sendiri. Penjaga tambahan mencegah penghapusan/penonaktifan Super Admin aktif terakhir atau akun sendiri, sehingga sistem tidak bisa terkunci. Akun yang dinonaktifkan langsung kehilangan akses (middleware `protect` menolak `isActive === false`), dan role serta status akun hanya bisa diubah oleh Super Admin.
 - **Kontainer non-root** — backend berjalan sebagai user tanpa privilege; kapabilitas `NET_RAW` untuk ping diberikan secara presisi lewat `setcap` pada binary ping saja, bukan dengan menjalankan seluruh container sebagai root.
 - **Isolasi jaringan** — MongoDB tidak memiliki akses ke internet maupun port yang terbuka ke host sama sekali (lihat `docker-compose.yml`); hanya bisa diakses dari container backend melalui jaringan Docker internal.
 - **Halaman status publik** hanya mengembalikan label & status yang Anda tentukan — URL/host/port asli monitor tidak pernah diekspos ke pengunjung publik.
@@ -409,6 +471,18 @@ Fitur ini menambahkan migrasi `004-create-ssl-monitor-indexes.js` yang membuat i
 **Notifikasi Discord/Slack tidak terkirim.** Gunakan tombol uji coba (ikon 🧪) di **Pengaturan → Notifikasi** untuk memastikan URL webhook benar. Backend menolak URL yang tidak cocok dengan pola resmi Discord/Slack.
 
 **Notifikasi Telegram tidak terkirim.** Di **Pengaturan → Notifikasi**, pilih tipe **Telegram** lalu isi **Bot Token** (dari [@BotFather](https://t.me/BotFather)) dan **Chat ID** tujuan (ID pengguna, grup, atau channel). Pastikan bot sudah pernah menerima pesan/kirim `/start` pada chat tersebut, dan untuk grup/channel bot harus ditambahkan sebagai anggota. Gunakan tombol uji coba (ikon 🧪) untuk memverifikasi bot token dan chat ID.
+
+**Menu “Pengguna” di Pengaturan tidak muncul.** Menu itu hanya tampil untuk akun berperan **Super Admin**. Akun yang dibuat sebelum fitur role ada tersimpan sebagai `admin`, jadi Anda perlu menaikkannya sekali:
+
+```bash
+# Cara tercepat: naikkan role akun yang ditunjuk SEED_ADMIN_EMAIL di .env
+docker compose exec backend npm run seed -- --role superadmin
+
+# Lalu cek apakah berhasil (keluarannya menyebut role: superadmin)
+docker compose logs --tail=30 backend | grep -i "role akun"
+```
+
+Kata sandi Anda tidak berubah. Langkah lengkap (termasuk cara lewat `.env`) ada di [Memberi Role Superadmin pada Akun Lama](#memberi-role-superadmin-pada-akun-lama). Jika Anda sudah punya Super Admin lain, cara termudah adalah mengubah **Peran** akun tersebut dari menu Pengguna.
 
 **Monitor SSL berstatus `error` / “Gagal Dicek”.** Penyebab paling umum:
 
