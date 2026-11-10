@@ -15,6 +15,15 @@ const password = Joi.string().min(8).max(128).required().messages({
 
 const objectId = Joi.string().hex().length(24);
 
+// Alamat email untuk penerima notifikasi. Dibatasi 254 karakter (RFC 5321)
+// dan menolak karakter kontrol agar tidak bisa dipakai untuk header
+// injection pada email yang dikirim lewat SMTP.
+const emailAddress = Joi.string()
+  .trim()
+  .email({ tlds: { allow: false } })
+  .max(254)
+  .pattern(/^[^\r\n]+$/);
+
 function normalizeTags(tags) {
   if (!Array.isArray(tags)) return [];
 
@@ -156,9 +165,10 @@ const schemas = {
 
   notificationChannel: Joi.object({
     name: Joi.string().trim().min(1).max(100).required(),
-    type: Joi.string().valid('discord', 'slack', 'telegram').required(),
+    type: Joi.string().valid('discord', 'slack', 'telegram', 'email').required(),
     // Discord/Slack require a webhook URL; Telegram uses a bot token + chat
-    // ID instead, so the URL must be absent for those channels.
+    // ID; Email uses an SMTP server. Field milik tipe lain otomatis ditolak
+    // (forbidden) supaya tidak ada kredensial "nyangkut" saat tipe diubah.
     webhookUrl: Joi.when('type', {
       is: 'discord',
       then: Joi.string()
@@ -192,6 +202,75 @@ const schemas = {
         .messages({ 'any.required': 'Chat ID Telegram wajib diisi.' }),
       otherwise: Joi.forbidden(),
     }),
+
+    // --- Email / SMTP ---
+    smtpHost: Joi.when('type', {
+      is: 'email',
+      then: Joi.alternatives()
+        .try(Joi.string().hostname(), Joi.string().ip())
+        .required()
+        .messages({ 'any.required': 'Host SMTP wajib diisi.' }),
+      otherwise: Joi.forbidden(),
+    }),
+    // 587 = STARTTLS (umum), 465 = TLS langsung, 25 = relay internal.
+    smtpPort: Joi.when('type', {
+      is: 'email',
+      then: Joi.number().integer().min(1).max(65535).default(587),
+      otherwise: Joi.forbidden(),
+    }),
+    smtpSecure: Joi.when('type', {
+      is: 'email',
+      then: Joi.boolean().default(false),
+      otherwise: Joi.forbidden(),
+    }),
+    // Kosong = server SMTP tanpa autentikasi (mis. relay internal).
+    smtpUser: Joi.when('type', {
+      is: 'email',
+      then: Joi.string().trim().max(254).allow(''),
+      otherwise: Joi.forbidden(),
+    }),
+    smtpPassword: Joi.when('type', {
+      is: 'email',
+      then: Joi.string().max(256).allow(''),
+      otherwise: Joi.forbidden(),
+    }),
+    // Opsional; boleh "ops@contoh.com" atau "Nama <ops@contoh.com>".
+    emailFrom: Joi.when('type', {
+      is: 'email',
+      then: Joi.string().trim().max(254).allow(''),
+      otherwise: Joi.forbidden(),
+    }),
+    // Penerima boleh dikirim sebagai array email atau satu string yang
+    // dipisah koma/titik-koma/spasi; keduanya dinormalkan menjadi array.
+    emailTo: Joi.when('type', {
+      is: 'email',
+      then: Joi.alternatives()
+        .try(
+          Joi.array().items(emailAddress).min(1).max(50),
+          Joi.string()
+            .trim()
+            .min(1)
+            .max(2000)
+            .custom((value, helpers) => {
+              const list = value
+                .split(/[,;\s]+/)
+                .map((s) => s.trim())
+                .filter(Boolean);
+              if (list.length === 0) return helpers.error('any.invalid');
+              for (const addr of list) {
+                if (emailAddress.validate(addr).error) return helpers.error('any.invalid');
+              }
+              return list.slice(0, 50);
+            }, 'daftar email')
+        )
+        .required()
+        .messages({
+          'any.required': 'Minimal satu alamat email penerima wajib diisi.',
+          'any.invalid': 'Ada alamat email penerima yang tidak valid.',
+        }),
+      otherwise: Joi.forbidden(),
+    }),
+
     isActive: Joi.boolean().default(true),
   }),
 

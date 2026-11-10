@@ -25,6 +25,11 @@ async function cleanupOldAgentMetrics() {
 }
 
 async function cleanupOldAgentLogs() {
+  // Fitur auto-delete utama log agent adalah index TTL pada AgentLog
+  // (agentlog_ttl_loggedAt, dibuat oleh migrasi 006) yang membiarkan mongod
+  // menghapus dokumen kedaluwarsa sendiri. Sapuan harian di sini adalah
+  // lapisan kedua: memastikan backlog ikut terbuang segera setelah boot bila
+  // index TTL belum sempat bekerja (mis. baru diaktifkan pada instalasi lama).
   const cutoff = new Date(Date.now() - env.AGENT_LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000);
   const result = await AgentLog.deleteMany({ loggedAt: { $lt: cutoff } });
   if (result.deletedCount > 0) {

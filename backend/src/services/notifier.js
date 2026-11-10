@@ -1,6 +1,7 @@
 const axios = require('axios');
 const NotificationChannel = require('../models/NotificationChannel');
 const logger = require('../utils/logger');
+const { sendMail } = require('./mailer');
 
 const COLOR_DOWN = 0xf5484b;
 const COLOR_UP = 0x34d399;
@@ -11,7 +12,7 @@ async function getActiveChannels(monitor) {
   return NotificationChannel.find({
     _id: { $in: monitor.notificationChannels },
     isActive: true,
-  }).select('+webhookUrl +telegramBotToken');
+  }).select('+webhookUrl +telegramBotToken +smtpPassword');
 }
 
 async function dispatch(monitor, embed, plainText) {
@@ -25,6 +26,8 @@ async function dispatch(monitor, embed, plainText) {
           await sendSlack(channel.webhookUrl, plainText);
         } else if (channel.type === 'telegram') {
           await sendTelegram(channel.telegramBotToken, channel.telegramChatId, plainText);
+        } else if (channel.type === 'email') {
+          await sendEmail(channel, embed, plainText);
         }
       } catch (err) {
         // A failing webhook must never break the monitoring loop for
@@ -33,6 +36,44 @@ async function dispatch(monitor, embed, plainText) {
       }
     })
   );
+}
+
+// Email memakai judul embed sebagai subject dan teks biasa sebagai body,
+// ditambah versi HTML sederhana supaya tampil rapi di klien email.
+async function sendEmail(channel, embed, plainText) {
+  const fields = Array.isArray(embed.fields) ? embed.fields : [];
+  const escapeHtml = (value) =>
+    String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+
+  const html = [
+    '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1f2937">',
+    `<h2 style="margin:0 0 12px;font-size:18px">${escapeHtml(embed.title || 'Notifikasi Uptime Monitor')}</h2>`,
+    embed.description
+      ? `<p style="margin:0 0 12px;color:#4b5563">${escapeHtml(embed.description)}</p>`
+      : '',
+    fields.length
+      ? `<table style="border-collapse:collapse">${fields
+          .map(
+            (f) =>
+              `<tr><td style="padding:4px 12px 4px 0;color:#6b7280;white-space:nowrap">${escapeHtml(
+                f.name
+              )}</td><td style="padding:4px 0;font-weight:600">${escapeHtml(f.value)}</td></tr>`
+          )
+          .join('')}</table>`
+      : '',
+    '<p style="margin:16px 0 0;font-size:12px;color:#9ca3af">Dikirim otomatis oleh Uptime Monitor.</p>',
+    '</div>',
+  ].join('');
+
+  await sendMail(channel, {
+    subject: embed.title || 'Notifikasi Uptime Monitor',
+    text: plainText,
+    html,
+  });
 }
 
 async function sendDiscord(webhookUrl, embed) {
@@ -205,6 +246,15 @@ async function sendTestNotification(channel) {
       channel.telegramBotToken,
       channel.telegramChatId,
       '✅ Notifikasi uji coba dari Uptime Monitor.'
+    );
+  } else if (channel.type === 'email') {
+    await sendEmail(
+      channel,
+      {
+        ...embed,
+        fields: [{ name: 'Server SMTP', value: `${channel.smtpHost}:${channel.smtpPort}`, inline: true }],
+      },
+      '✅ Notifikasi uji coba dari Uptime Monitor.\n\nJika Anda menerima email ini, konfigurasi SMTP sudah benar.'
     );
   }
 }

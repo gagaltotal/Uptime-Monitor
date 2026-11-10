@@ -31,7 +31,11 @@ const env = {
   // --- Agent monitoring ---
   // How many days of agent metrics/logs to keep before pruning.
   AGENT_METRIC_RETENTION_DAYS: parseInt(process.env.AGENT_METRIC_RETENTION_DAYS, 10) || 30,
-  AGENT_LOG_RETENTION_DAYS: parseInt(process.env.AGENT_LOG_RETENTION_DAYS, 10) || 14,
+  // Log agent adalah data bervolume tinggi (satu baris per kejadian per agent),
+  // jadi defaultnya 7 hari (seminggu). Nilai <= 0 dianggap tidak valid dan
+  // dikembalikan ke 7 — angka negatif akan membuat cutoff berada di masa depan
+  // dan menghapus hampir seluruh log.
+  AGENT_LOG_RETENTION_DAYS: Math.max(1, parseInt(process.env.AGENT_LOG_RETENTION_DAYS, 10) || 7),
   // An agent that has not reported within this window is flagged as
   // disconnected. Defaults to 3x the recommended 60s agent interval so a
   // single missed beat does not raise a false incident.

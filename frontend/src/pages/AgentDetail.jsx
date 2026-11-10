@@ -837,7 +837,14 @@ export default function AgentDetail() {
           spacing={1.5}
           sx={{ mb: 1.5 }}
         >
-          <Typography variant="h6">Log Agent</Typography>
+          <Box>
+            <Typography variant="h6">Log Agent</Typography>
+            {/* Retensi diatur server lewat AGENT_LOG_RETENTION_DAYS (index TTL),
+                jadi log lama hilang sendiri dan tidak memenuhi storage. */}
+            <Typography variant="caption" color="text.secondary">
+              Log lama (default 7 hari) dihapus otomatis oleh server.
+            </Typography>
+          </Box>
           <TextField
             select
             size="small"

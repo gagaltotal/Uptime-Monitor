@@ -75,12 +75,43 @@ export default function Settings() {
 }
 
 // --- Tab: Notifikasi -------------------------------------------------------
-const emptyChannel = { name: '', type: 'discord', webhookUrl: '', telegramBotToken: '', telegramChatId: '' };
+const emptyChannel = {
+  name: '',
+  type: 'discord',
+  webhookUrl: '',
+  telegramBotToken: '',
+  telegramChatId: '',
+  smtpHost: '',
+  smtpPort: 587,
+  smtpSecure: false,
+  smtpUser: '',
+  smtpPassword: '',
+  emailFrom: '',
+  emailTo: '',
+};
+
+const CHANNEL_TYPE_META = {
+  discord: { label: 'Discord', color: 'primary' },
+  slack: { label: 'Slack', color: 'secondary' },
+  telegram: { label: 'Telegram', color: 'info' },
+  email: { label: 'Email (SMTP)', color: 'success' },
+};
+
+function channelSummary(c) {
+  if (c.type === 'email') {
+    const recipients = Array.isArray(c.emailTo) ? c.emailTo : [];
+    const host = c.smtpHost ? `${c.smtpHost}${c.smtpPort ? `:${c.smtpPort}` : ''}` : '-';
+    return `${host} → ${recipients.length ? recipients.join(', ') : 'belum ada penerima'}`;
+  }
+  if (c.type === 'telegram') return `Chat ID: ${c.telegramChatId || '-'}`;
+  return 'Webhook terhubung';
+}
 
 function NotificationsTab() {
   const { enqueueSnackbar } = useSnackbar();
   const [channels, setChannels] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [testingId, setTestingId] = useState(null);
   const [form, setForm] = useState(emptyChannel);
@@ -94,26 +125,94 @@ function NotificationsTab() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleCreate = async () => {
+  const openCreate = () => {
+    setEditTarget(null);
+    setForm(emptyChannel);
+    setError('');
+    setDialogOpen(true);
+  };
+
+  const openEdit = (channel) => {
+    setEditTarget(channel);
+    setForm({
+      ...emptyChannel,
+      name: channel.name || '',
+      type: channel.type || 'discord',
+      // Rahasia tidak pernah dikirim balik oleh backend. Dibiarkan kosong =
+      // "jangan ubah", nilai lama dipertahankan di server.
+      telegramChatId: channel.telegramChatId || '',
+      smtpHost: channel.smtpHost || '',
+      smtpPort: channel.smtpPort ?? 587,
+      smtpSecure: !!channel.smtpSecure,
+      smtpUser: channel.smtpUser || '',
+      emailFrom: channel.emailFrom || '',
+      emailTo: Array.isArray(channel.emailTo) ? channel.emailTo.join(', ') : '',
+    });
+    setError('');
+    setDialogOpen(true);
+  };
+
+  const buildPayload = () => {
+    // isActive ikut dikirim agar menyimpan perubahan tidak diam-diam
+    // mengaktifkan kembali channel yang sengaja dinonaktifkan.
+    const isActive = editTarget ? editTarget.isActive !== false : true;
+    if (form.type === 'email') {
+      return {
+        name: form.name,
+        type: 'email',
+        smtpHost: form.smtpHost,
+        smtpPort: Number(form.smtpPort) || 587,
+        smtpSecure: !!form.smtpSecure,
+        smtpUser: form.smtpUser,
+        smtpPassword: form.smtpPassword,
+        emailFrom: form.emailFrom,
+        // Backend menerima string berkoma maupun array — dikirim string agar
+        // operator bisa menempel daftar penerima sekaligus.
+        emailTo: form.emailTo,
+        isActive,
+      };
+    }
+    if (form.type === 'telegram') {
+      return {
+        name: form.name,
+        type: 'telegram',
+        telegramBotToken: form.telegramBotToken,
+        telegramChatId: form.telegramChatId,
+        isActive,
+      };
+    }
+    return { name: form.name, type: form.type, webhookUrl: form.webhookUrl, isActive };
+  };
+
+  const isFormValid = () => {
+    if (!form.name.trim()) return false;
+    if (form.type === 'email') return !!form.smtpHost.trim() && !!form.emailTo.trim();
+    if (form.type === 'telegram') {
+      // Saat edit, token boleh kosong (dipertahankan dari server).
+      const tokenOk = editTarget?.hasTelegramBotToken || !!form.telegramBotToken.trim();
+      return tokenOk && !!form.telegramChatId.trim();
+    }
+    return editTarget?.hasWebhookUrl || !!form.webhookUrl.trim();
+  };
+
+  const handleSave = async () => {
     setError('');
     setSaving(true);
     try {
-      const payload =
-        form.type === 'telegram'
-          ? {
-              name: form.name,
-              type: form.type,
-              telegramBotToken: form.telegramBotToken,
-              telegramChatId: form.telegramChatId,
-            }
-          : { name: form.name, type: form.type, webhookUrl: form.webhookUrl };
-      const { data } = await api.post('/notification-channels', payload);
-      setChannels((prev) => [data.channel, ...(prev || [])]);
+      if (editTarget) {
+        const { data } = await api.put(`/notification-channels/${editTarget._id}`, buildPayload());
+        setChannels((prev) => prev.map((c) => (c._id === data.channel._id ? data.channel : c)));
+        enqueueSnackbar('Channel notifikasi diperbarui.', { variant: 'success' });
+      } else {
+        const { data } = await api.post('/notification-channels', buildPayload());
+        setChannels((prev) => [data.channel, ...(prev || [])]);
+        enqueueSnackbar('Channel notifikasi ditambahkan.', { variant: 'success' });
+      }
       setDialogOpen(false);
       setForm(emptyChannel);
-      enqueueSnackbar('Channel notifikasi ditambahkan.', { variant: 'success' });
+      setEditTarget(null);
     } catch (err) {
-      setError(err.response?.data?.message || 'Gagal menambahkan channel.');
+      setError(err.response?.data?.message || 'Gagal menyimpan channel.');
     } finally {
       setSaving(false);
     }
@@ -150,18 +249,15 @@ function NotificationsTab() {
         spacing={2}
         sx={{ mb: 2 }}
       >
-        <Typography variant="body2" color="text.secondary" sx={{ maxWidth: { xs: '100%', sm: 480 } }}>
-          Hubungkan Discord, Slack, atau Telegram agar mendapat notifikasi saat ada layanan down atau sertifikat SSL akan kedaluwarsa.
+        <Typography variant="body2" color="text.secondary" sx={{ maxWidth: { xs: '100%', sm: 520 } }}>
+          Hubungkan Discord, Slack, Telegram, atau server SMTP email agar mendapat notifikasi saat ada layanan down
+          atau sertifikat SSL akan kedaluwarsa.
         </Typography>
         <Button
           variant="contained"
           fullWidth
           startIcon={<AddRoundedIcon />}
-          onClick={() => {
-            setForm(emptyChannel);
-            setError('');
-            setDialogOpen(true);
-          }}
+          onClick={openCreate}
           sx={{ flexShrink: 0, width: { xs: '100%', sm: 'auto' }, whiteSpace: 'nowrap' }}
         >
           Tambah Channel
@@ -178,32 +274,45 @@ function NotificationsTab() {
             <Typography color="text.secondary">Belum ada channel notifikasi.</Typography>
           </Box>
         ) : (
-          channels.map((c) => (
-            <Box
-              key={c._id}
-              sx={{ display: 'flex', alignItems: 'center', gap: 2, px: 2.5, py: 1.75, borderBottom: '1px solid', borderColor: 'divider', '&:last-of-type': { borderBottom: 'none' } }}
-            >
-              <Chip size="small" label={c.type === 'discord' ? 'Discord' : c.type === 'slack' ? 'Slack' : 'Telegram'} />
-              <Typography sx={{ flex: 1 }} fontWeight={600}>
-                {c.name}
-              </Typography>
-              <Tooltip title="Kirim notifikasi uji coba">
-                <span>
-                  <IconButton size="small" onClick={() => handleTest(c)} disabled={testingId === c._id}>
-                    <ScienceRoundedIcon fontSize="small" />
+          channels.map((c) => {
+            const meta = CHANNEL_TYPE_META[c.type] || { label: c.type, color: 'default' };
+            return (
+              <Box
+                key={c._id}
+                sx={{ display: 'flex', alignItems: 'center', gap: 2, px: 2.5, py: 1.75, borderBottom: '1px solid', borderColor: 'divider', '&:last-of-type': { borderBottom: 'none' } }}
+              >
+                <Chip size="small" label={meta.label} color={meta.color} />
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography fontWeight={600} noWrap>
+                    {c.name}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" noWrap component="div">
+                    {channelSummary(c)}
+                  </Typography>
+                </Box>
+                <Tooltip title="Edit channel">
+                  <IconButton size="small" onClick={() => openEdit(c)}>
+                    <EditRoundedIcon fontSize="small" />
                   </IconButton>
-                </span>
-              </Tooltip>
-              <IconButton size="small" color="error" onClick={() => setDeleteTarget(c)}>
-                <DeleteRoundedIcon fontSize="small" />
-              </IconButton>
-            </Box>
-          ))
+                </Tooltip>
+                <Tooltip title="Kirim notifikasi uji coba">
+                  <span>
+                    <IconButton size="small" onClick={() => handleTest(c)} disabled={testingId === c._id}>
+                      <ScienceRoundedIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <IconButton size="small" color="error" onClick={() => setDeleteTarget(c)}>
+                  <DeleteRoundedIcon fontSize="small" />
+                </IconButton>
+              </Box>
+            );
+          })
         )}
       </Paper>
 
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>Tambah Channel Notifikasi</DialogTitle>
+      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>{editTarget ? 'Edit Channel Notifikasi' : 'Tambah Channel Notifikasi'}</DialogTitle>
         <DialogContent dividers>
           <Stack spacing={2.5}>
             {error && <Alert severity="error">{error}</Alert>}
@@ -213,10 +322,13 @@ function NotificationsTab() {
               value={form.type}
               onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
               fullWidth
+              disabled={!!editTarget}
+              helperText={editTarget ? 'Tipe channel tidak dapat diubah setelah dibuat.' : undefined}
             >
               <MenuItem value="discord">Discord</MenuItem>
               <MenuItem value="slack">Slack</MenuItem>
               <MenuItem value="telegram">Telegram</MenuItem>
+              <MenuItem value="email">Email (SMTP)</MenuItem>
             </TextField>
             <TextField
               label="Nama Channel"
@@ -229,7 +341,7 @@ function NotificationsTab() {
               <>
                 <TextField
                   label="Bot Token"
-                  placeholder="mis. 123456789:AA..."
+                  placeholder={editTarget?.hasTelegramBotToken ? '••••••• (kosongkan agar tidak berubah)' : 'mis. 123456789:AA...'}
                   value={form.telegramBotToken}
                   onChange={(e) => setForm((f) => ({ ...f, telegramBotToken: e.target.value }))}
                   helperText="Token bot dari @BotFather."
@@ -244,10 +356,18 @@ function NotificationsTab() {
                   fullWidth
                 />
               </>
+            ) : form.type === 'email' ? (
+              <EmailChannelFields form={form} setForm={setForm} editTarget={editTarget} />
             ) : (
               <TextField
                 label="URL Webhook"
-                placeholder={form.type === 'discord' ? 'https://discord.com/api/webhooks/...' : 'https://hooks.slack.com/services/...'}
+                placeholder={
+                  editTarget?.hasWebhookUrl
+                    ? '••••••• (kosongkan agar tidak berubah)'
+                    : form.type === 'discord'
+                      ? 'https://discord.com/api/webhooks/...'
+                      : 'https://hooks.slack.com/services/...'
+                }
                 value={form.webhookUrl}
                 onChange={(e) => setForm((f) => ({ ...f, webhookUrl: e.target.value }))}
                 fullWidth
@@ -259,15 +379,7 @@ function NotificationsTab() {
           <Button color="inherit" onClick={() => setDialogOpen(false)} disabled={saving}>
             Batal
           </Button>
-          <Button
-            variant="contained"
-            onClick={handleCreate}
-            disabled={
-              saving ||
-              !form.name ||
-              (form.type === 'telegram' ? !form.telegramBotToken || !form.telegramChatId : !form.webhookUrl)
-            }
-          >
+          <Button variant="contained" onClick={handleSave} disabled={saving || !isFormValid()}>
             Simpan
           </Button>
         </DialogActions>
@@ -283,6 +395,76 @@ function NotificationsTab() {
         onClose={() => setDeleteTarget(null)}
       />
     </Box>
+  );
+}
+
+// Field khusus channel email/SMTP. Dipisah agar alur tipe lain tetap ringkas.
+function EmailChannelFields({ form, setForm, editTarget }) {
+  return (
+    <>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+        <TextField
+          label="Host SMTP"
+          placeholder="mis. smtp.gmail.com"
+          value={form.smtpHost}
+          onChange={(e) => setForm((f) => ({ ...f, smtpHost: e.target.value }))}
+          fullWidth
+        />
+        <TextField
+          label="Port"
+          type="number"
+          value={form.smtpPort}
+          onChange={(e) => setForm((f) => ({ ...f, smtpPort: e.target.value }))}
+          sx={{ width: { xs: '100%', sm: 140 } }}
+          helperText="587 / 465"
+        />
+      </Stack>
+      <FormControlLabel
+        control={
+          <Switch
+            checked={!!form.smtpSecure}
+            onChange={(e) => setForm((f) => ({ ...f, smtpSecure: e.target.checked }))}
+          />
+        }
+        label="Gunakan TLS langsung (biasanya port 465)"
+        sx={{ m: 0, alignSelf: 'flex-start' }}
+      />
+      <TextField
+        label="Username SMTP"
+        placeholder="mis. notifikasi@contoh.com"
+        value={form.smtpUser}
+        onChange={(e) => setForm((f) => ({ ...f, smtpUser: e.target.value }))}
+        helperText="Kosongkan bila server SMTP tidak memakai autentikasi."
+        fullWidth
+      />
+      <TextField
+        label="Password SMTP"
+        type="password"
+        placeholder={editTarget?.hasSmtpPassword ? '••••••• (kosongkan agar tidak berubah)' : 'Password / App Password'}
+        value={form.smtpPassword}
+        onChange={(e) => setForm((f) => ({ ...f, smtpPassword: e.target.value }))}
+        fullWidth
+        autoComplete="new-password"
+      />
+      <TextField
+        label="Email Pengirim (From)"
+        placeholder="mis. Uptime Monitor <notifikasi@contoh.com>"
+        value={form.emailFrom}
+        onChange={(e) => setForm((f) => ({ ...f, emailFrom: e.target.value }))}
+        helperText="Opsional. Bila kosong, dipakai username SMTP."
+        fullWidth
+      />
+      <TextField
+        label="Email Penerima (To)"
+        placeholder="mis. ops@contoh.com, oncall@contoh.com"
+        value={form.emailTo}
+        onChange={(e) => setForm((f) => ({ ...f, emailTo: e.target.value }))}
+        helperText="Pisahkan beberapa alamat dengan koma."
+        fullWidth
+        multiline
+        minRows={1}
+      />
+    </>
   );
 }
 

@@ -38,7 +38,7 @@ Aplikasi pemantauan server & situs web **self-hosted** — alternatif open-sourc
 - **SSL & Domain Monitoring** — pemantauan khusus sertifikat TLS yang berdiri sendiri: domain, penerbit (issuer), tanggal kedaluwarsa, sisa hari, status, dan waktu notifikasi terakhir. Punya menu sendiri, tercatat sebagai insiden, dan bisa mengirim notifikasi. Cocok untuk memantau domain yang sertifikatnya perlu diperpanjang berkala. Lihat bagian [SSL & Domain Monitoring](#ssl--domain-monitoring).
 - **Riwayat uptime/downtime & waktu respons**, divisualisasikan dalam grafik.
 - **Deteksi insiden otomatis** — setiap kali layanan down, insiden tercatat lengkap dengan durasi.
-- **Notifikasi Discord, Slack & Telegram** saat layanan down, pulih kembali, atau SSL akan kedaluwarsa.
+- **Notifikasi Discord, Slack, Telegram & Email (SMTP)** saat layanan down, pulih kembali, atau SSL akan kedaluwarsa.
 - **Halaman status publik** yang bisa dibuat dan dibagikan ke pengguna Anda (`/status/nama-halaman`).
 - **Manajemen pengguna berperan (role)** — dua tingkat akses: **Super Admin** (akses penuh, termasuk mengelola pengguna) dan **Admin** (mengelola monitor & pengaturan, tanpa manajemen pengguna). Setiap akun juga punya status **Aktif/Nonaktif** yang bisa diubah kapan saja. Lihat bagian [Peran & Status Pengguna](#peran--status-pengguna).
 - **Pemantauan melalui Agent** — pasang agen di server Anda dan dapatkan detail CPU, memori, disk, jaringan, proses, dan uptime host secara real-time. Bisa digunakan untuk memantau host yang tidak bisa diakses dari luar (di balik NAT/firewall).
@@ -101,6 +101,8 @@ docker compose logs -f backend   # lihat log backend (mis. debug notifikasi)
 | `COOKIE_SECURE` | Ya, saat pakai HTTPS | Set `true` hanya jika aplikasi sudah di belakang HTTPS. |
 | `FRONTEND_PORT` | Opsional | Port host untuk mengakses dashboard (default `3000`). |
 | `HEARTBEAT_RETENTION_DAYS` | Opsional | Berapa lama histori pengecekan disimpan (default 90 hari). |
+| `AGENT_LOG_RETENTION_DAYS` | Opsional | Berapa lama log agent disimpan sebelum **dihapus otomatis** server lewat index TTL MongoDB (default `7` hari / seminggu, minimum 1). Lihat [Notifikasi & Retensi](#notifikasi--retensi). |
+| `AGENT_METRIC_RETENTION_DAYS` | Opsional | Berapa lama metrik agent disimpan (default `30` hari). |
 | `SSL_TICK_INTERVAL_MS` | Opsional | Seberapa sering engine SSL memeriksa jadwal pengecekan (default `30000` ms). |
 | `SSL_WARN_THRESHOLD_DAYS` | Opsional | Ambang hari peringatan default untuk monitor SSL baru (default `14` hari). |
 | `SSL_RENOTIFY_INTERVAL_HOURS` | Opsional | Jeda minimal antar notifikasi berulang untuk insiden SSL yang sama (default `24` jam). |
@@ -269,7 +271,7 @@ uptime-monitor/
 │       ├── models/        # Skema Mongoose (Agent, Monitor, Heartbeat, Incident, SslMonitor, SslIncident, ...)
 │       ├── middleware/    # auth, keamanan (helmet/rate-limit/sanitize), error handler
 │       ├── validators/    # Skema validasi Joi
-│       ├── services/      # Engine pemantauan, Agent, SSE/SSL engine, checker HTTP/TCP/Ping/SSL, notifier
+│       ├── services/      # Engine pemantauan, Agent, SSE/SSL engine, checker HTTP/TCP/Ping/SSL, notifier, mailer (SMTP)
 │       ├── migrations/    # Migrasi database bernomor + runner
 │       ├── seeders/       # Seeder akun admin
 │       ├── cli/           # Entry point `npm run migrate` & `npm run seed`
@@ -307,7 +309,7 @@ Fitur ini memungkinkan Anda memantau **server host secara menyeluruh** — CPU, 
 1. Buka **Agent** di sidebar navigasi.
 2. Klik **Tambah Agent**, isi nama dan deskripsi opsional.
 3. Setelah disimpan, token `agt_...` akan **ditampilkan sekali** — simpan dengan aman. Gunakan tombol **Salin** di dialog token untuk menyalinnya. Tombol ini tetap berfungsi meski dashboard diakses lewat HTTP (bukan HTTPS). Token ini digunakan agen untuk autentikasi (bukan JWT).
-4. Pilih channel notifikasi yang ingin menerima alert dari agent ini (reuse notifikasi Discord/Slack/Telegram yang sudah dikonfigurasi).
+4. Pilih channel notifikasi yang ingin menerima alert dari agent ini (reuse notifikasi Discord/Slack/Telegram/Email yang sudah dikonfigurasi).
 
 ### Menginstal Agent Bash
 
@@ -407,21 +409,29 @@ Config precedence: environment variable → `/etc/uptime-agent/agent.conf`.
 
 Di halaman detail agent, bagian **Log Agent** dapat difilter berdasarkan level: **Semua level**, Debug, Info, Warning, atau Error.
 
+Log lama **dihapus otomatis oleh server setelah 7 hari** (default) agar koleksi tidak membengkak di disk server — lihat [Notifikasi & Retensi](#notifikasi--retensi).
+
 ### Laporan Insiden PDF
 
 Di menu **Insiden**, klik **Cetak Laporan PDF**. Laporan memuat ringkasan (total, berlangsung, selesai), filter status yang aktif, dan tabel seluruh insiden dengan monitor, target, waktu mulai/selesai, dan durasi. Gunakan tujuan cetak **Simpan sebagai PDF** pada dialog cetak browser.
 - Log dikirim ke `POST /api/agents/logs` (hanya jika `UPTIME_SEND_LOGS=true` dan ada ≥3 kegagalan berturut-turut).
 
-### Notifikasi & Retensi
-
+### Deteksi Service Gagal
 
 Deteksi service gagal bekerja di semua distro yang menggunakan **systemd** (Debian, Ubuntu, RHEL, Fedora, Arch, openSUSE, dll.) dan **OpenRC** (Alpine, Gentoo, Devuan). Pada host tanpa keduanya, fitur service dilewati dan ditandai `source: none`.
+
+### Notifikasi & Retensi
+
+- Notifikasi **menggunakan ulang** channel Discord/Slack/Telegram/Email yang sudah ada — tidak ada infrastruktur notifikasi baru.
+- Log agent **dihapus otomatis setiap 7 hari** (satu minggu) oleh index TTL MongoDB pada kolom `loggedAt`, sehingga koleksi tidak membengkak di disk server.
+  - Index TTL dibangun oleh migrasi `006-agent-log-ttl-index.js` saat backend start (butuh `AUTO_MIGRATE=true`, default aktif). Migrasi ini juga langsung membersihkan backlog log yang sudah kedaluwarsa.
+  - Ubah masa simpan lewat `AGENT_LOG_RETENTION_DAYS` di `.env` lalu `docker compose up -d`. Nilai baru diselaraskan otomatis oleh migrasi pada restart berikutnya (index lama di-drop dan dibuat ulang).
+  - `services/retention.js` tetap menjalankan sapuan harian sebagai lapisan kedua, sehingga log tetap terpangkas meskipun index TTL belum sempat dibuat.
+- Retensi default: metrik **30 hari**, log **7 hari** (bisa diubah di `.env`).
 
 ### Footer Dinamis
 
 Footer aplikasi menampilkan hak cipta dengan tahun berjalan secara otomatis (contoh: `© 2026–2027`). Tampilan footer menyesuaikan lebar layar (responsif).
-- Notifikasi **menggunakan ulang** channel Discord/Slack/Telegram yang sudah ada — tidak ada infrastruktur notifikasi baru.
-- Retensi default: metrik **30 hari**, log **14 hari** (bisa diubah di `.env`).
 
 ### Cross-Distro
 
@@ -476,7 +486,7 @@ Sistem mengirim notifikasi ke kanal yang terpasang pada monitor SSL:
 - **Gagal dicek** (critical) — saat pengecekan TLS gagal setelah melewati batas percobaan ulang.
 - **Pulih** — saat status kembali `valid`.
 
-Notifikasi **menggunakan ulang** channel Discord/Slack/Telegram yang sudah ada di **Pengaturan → Notifikasi**. Setiap pengiriman mencatat waktunya ke kolom **Last Notified** sehingga notifikasi berulang tidak membanjiri kanal.
+Notifikasi **menggunakan ulang** channel Discord/Slack/Telegram/Email yang sudah ada di **Pengaturan → Notifikasi**. Setiap pengiriman mencatat waktunya ke kolom **Last Notified** sehingga notifikasi berulang tidak membanjiri kanal.
 
 ### Insiden
 
@@ -497,6 +507,19 @@ Fitur ini menambahkan migrasi `004-create-ssl-monitor-indexes.js` yang membuat i
 **Login gagal / langsung ter-logout setelah refresh halaman.** Biasanya karena `CORS_ORIGIN` di `.env` tidak sama persis dengan URL yang dipakai mengakses dashboard di browser. Perbaiki lalu `docker compose up -d --build` ulang.
 
 **Notifikasi Discord/Slack tidak terkirim.** Gunakan tombol uji coba (ikon 🧪) di **Pengaturan → Notifikasi** untuk memastikan URL webhook benar. Backend menolak URL yang tidak cocok dengan pola resmi Discord/Slack.
+
+**Notifikasi Email tidak terkirim.** Di **Pengaturan → Notifikasi** pilih tipe **Email (SMTP)** lalu isi:
+
+| Field | Keterangan |
+|---|---|
+| **Host SMTP** | Nama host atau IP server SMTP, mis. `smtp.gmail.com`. |
+| **Port** | `587` untuk STARTTLS (paling umum), `465` untuk TLS langsung, `25` untuk relay internal. |
+| **Gunakan TLS langsung** | Nyalakan hanya untuk port `465`. |
+| **Username / Password SMTP** | Kosongkan keduanya bila server SMTP tidak memakai autentikasi (mis. relay internal). Untuk Gmail gunakan **App Password**, bukan password akun. |
+| **Email Pengirim (From)** | Opsional. Bila kosong dipakai username SMTP, lalu `uptime-monitor@<host>`. |
+| **Email Penerima (To)** | Satu atau beberapa alamat, dipisah koma. |
+
+Password SMTP **tidak pernah dikirim balik ke browser**. Saat mengedit channel, biarkan field password kosong agar nilai lama dipertahankan, lalu gunakan tombol uji coba (ikon 🧪) untuk memverifikasi.
 
 **Notifikasi Telegram tidak terkirim.** Di **Pengaturan → Notifikasi**, pilih tipe **Telegram** lalu isi **Bot Token** (dari [@BotFather](https://t.me/BotFather)) dan **Chat ID** tujuan (ID pengguna, grup, atau channel). Pastikan bot sudah pernah menerima pesan/kirim `/start` pada chat tersebut, dan untuk grup/channel bot harus ditambahkan sebagai anggota. Gunakan tombol uji coba (ikon 🧪) untuk memverifikasi bot token dan chat ID.
 
