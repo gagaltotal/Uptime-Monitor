@@ -41,6 +41,7 @@ Aplikasi pemantauan server & situs web **self-hosted** — alternatif open-sourc
 - **Notifikasi Discord, Slack, Telegram & Email (SMTP)** saat layanan down, pulih kembali, atau SSL akan kedaluwarsa.
 - **Halaman status publik** yang bisa dibuat dan dibagikan ke pengguna Anda (`/status/nama-halaman`).
 - **Manajemen pengguna berperan (role)** — dua tingkat akses: **Super Admin** (akses penuh, termasuk mengelola pengguna) dan **Admin** (mengelola monitor & pengaturan, tanpa manajemen pengguna). Setiap akun juga punya status **Aktif/Nonaktif** yang bisa diubah kapan saja. Lihat bagian [Peran & Status Pengguna](#peran--status-pengguna).
+- **Captcha matematika di halaman login** — sebelum email dan kata sandi diperiksa, pengguna wajib menjawab soal aritmetika (hanya penjumlahan, pengurangan, perkalian, dan pembagian). Jawabannya tidak pernah dikirim ke browser dan setiap soal bersifat sekali pakai. Lihat bagian [Captcha Matematika di Login](#captcha-matematika-di-login).
 - **Pemantauan melalui Agent** — pasang agen di server Anda dan dapatkan detail CPU, memori, disk, jaringan, proses, dan uptime host secara real-time. Bisa digunakan untuk memantau host yang tidak bisa diakses dari luar (di balik NAT/firewall).
 - **Pemantauan service Linux** — agent mendeteksi service systemd/OpenRC yang gagal (`failed`/`crashed`) dan menampilkan namanya di halaman detail agent, serta membuat insiden otomatis.
 - **Panduan instalasi Agent di dashboard** — langkah instalasi lengkap dan tombol unduh file agent langsung dari menu Agent.
@@ -251,6 +252,7 @@ Aplikasi ini dirancang dengan asumsi akan diekspos ke internet (untuk memantau s
 - **RCE (Remote Code Execution)** — tidak ada `eval`, `exec`, atau `child_process` dengan input mentah pengguna. Fitur ping memvalidasi ketat format hostname/IP lewat Joi sebelum diteruskan ke pustaka ping (yang sendiri menggunakan `spawn` dengan argumen array, bukan shell string).
 - **Bypass token / CSRF** — access token JWT berumur pendek (15 menit) disimpan **di memori**, bukan `localStorage` (kebal dari pencurian via XSS). Refresh token disimpan di cookie `httpOnly` + `sameSite` (tidak bisa dibaca JavaScript maupun dikirim otomatis lintas situs), dan dirotasi setiap dipakai. Mengganti password otomatis membatalkan seluruh sesi lain via mekanisme `tokenVersion`.
 - **Brute-force login** — rate limiting berlapis (per-IP di level aplikasi) ditambah penguncian akun otomatis 15 menit setelah 5x kegagalan login.
+- **Captcha matematika di login** — sebelum kredensial diperiksa, pengguna wajib menjawab soal aritmetika (hanya `+`, `−`, `×`, `÷`). Jawaban benar **tidak pernah dikirim ke browser**: server hanya mengirim soal sebagai teks dan sebuah token terenkripsi **AES-256-GCM** yang mengikat jawaban, sidik jari browser (cookie `httpOnly`), dan masa berlaku 5 menit. Token bersifat **sekali pakai** (jawaban salah pun menghanguskannya), dibandingkan secara **constant-time**, dan kegagalan berulang per-IP diblokir sementara. Lihat [Captcha Matematika di Login](#captcha-matematika-di-login).
 - **Mass assignment** — validasi Joi memakai `stripUnknown: true`, sehingga field yang tidak didefinisikan skema (mis. mencoba mengirim `role` atau `tokenVersion` lewat body request) otomatis dibuang sebelum mencapai database.
 - **Kontrol akses berbasis peran** — endpoint manajemen pengguna dijaga oleh middleware `requireSuperAdmin` di sisi server, bukan hanya disembunyikan di UI. Admin biasa yang mengirim permintaan langsung ke API tetap ditolak `403`, dan kolom `role`/`isActive` tidak bisa diubah lewat endpoint profil sendiri. Penjaga tambahan mencegah penghapusan/penonaktifan Super Admin aktif terakhir atau akun sendiri, sehingga sistem tidak bisa terkunci. Akun yang dinonaktifkan langsung kehilangan akses (middleware `protect` menolak `isActive === false`), dan role serta status akun hanya bisa diubah oleh Super Admin.
 - **Kontainer non-root** — backend berjalan sebagai user tanpa privilege; kapabilitas `NET_RAW` untuk ping diberikan secara presisi lewat `setcap` pada binary ping saja, bukan dengan menjalankan seluruh container sebagai root.
@@ -258,6 +260,62 @@ Aplikasi ini dirancang dengan asumsi akan diekspos ke internet (untuk memantau s
 - **Halaman status publik** hanya mengembalikan label & status yang Anda tentukan — URL/host/port asli monitor tidak pernah diekspos ke pengunjung publik.
 
 > Tidak ada sistem yang 100% kebal. Selalu jaga `.env` tetap rahasia, perbarui image Docker secara berkala (`docker compose pull && docker compose up -d --build`), dan gunakan HTTPS + password admin yang kuat di produksi.
+
+## Captcha Matematika di Login
+
+Halaman login dilindungi **captcha matematika**: sebelum email dan kata sandi diperiksa, pengguna harus menjawab satu soal aritmetika. Fitur ini menambah lapisan pertahanan terhadap bot yang mencoba menebak kredensial secara otomatis — di atas rate limiting dan penguncian akun yang sudah ada.
+
+### Cara Kerja
+
+1. Saat halaman login dibuka, frontend memanggil `GET /api/auth/captcha`.
+2. Server membuat soal acak dan membalas **soal dalam bentuk teks** beserta **token terenkripsi**, sekaligus men-set cookie pengikat di browser.
+3. Pengguna mengetik jawabannya, lalu `POST /api/auth/login` mengirim `captchaToken` + `captchaAnswer` bersama email dan kata sandi.
+4. Server memverifikasi captcha **lebih dulu**; bila gagal, kredensial tidak pernah diperiksa dan tidak ada percobaan login yang tercatat.
+
+### Operasi yang Didukung
+
+Soal hanya memakai empat operasi dasar — tidak ada operasi lain:
+
+| Operasi | Simbol | Catatan |
+|---|---|---|
+| Penjumlahan | `+` | Hasil dijaga tetap kecil agar bisa dihitung di kepala. |
+| Pengurangan | `−` | Tidak pernah menghasilkan bilangan negatif. |
+| Perkalian | `×` | Pengali kecil dengan batas hasil yang sama. |
+| Pembagian | `÷` | Pembagi selalu dipilih agar hasilnya **bilangan bulat**. |
+
+Soal dapat berupa satu langkah (mis. `12 + 7`) atau dua langkah (mis. `6 × 3 − 4`), dihitung dari kiri ke kanan. Semua soal dirancang tetap ramah manusia — tujuannya menahan bot, bukan menyulitkan pengguna yang sah.
+
+### Lapisan Keamanan
+
+Fitur captcha dibuat berlapis, bukan sekadar soal teks biasa:
+
+- **Jawaban tidak pernah dikirim ke browser.** Server hanya mengirim soal sebagai teks; jawaban benar hidup di dalam token yang dienkripsi **AES-256-GCM** dengan kunci yang diturunkan dari `JWT_REFRESH_SECRET` (dilabeli domain `captcha:` agar tidak pernah sama dengan kunci JWT mana pun). Token palsu atau hasil modifikasi gagal didekripsi dan langsung ditolak.
+- **Terikat pada browser.** Token diikat juga ke cookie `cpt` (`httpOnly`, `path=/api/auth`), sehingga token yang dicuri dari perangkat/browser lain tetap ditolak.
+- **Sekali pakai (anti-replay).** Setiap token langsung dihanguskan saat dipakai — baik jawaban **benar maupun salah**. Menebak berulang dengan soal yang sama tidak mungkin.
+- **Masa berlaku 5 menit.** Token yang kedaluwarsa ditolak, dan entri cache-nya dibersihkan otomatis (jumlahnya dibatasi agar tidak tumbuh tanpa batas).
+- **Perbandingan constant-time** (`crypto.timingSafeEqual`) supaya waktu respons tidak membocorkan jawaban.
+- **Penalti per-IP.** Setelah 10 kegagalan captcha dalam 15 menit, IP tersebut diblokir sementara — pola khas skrip penebak jawaban.
+- **Rate limiter khusus.** Endpoint penerbitan captcha dibatasi 60 permintaan / 15 menit per IP agar token tidak bisa dipanen dalam jumlah besar.
+- **Kredensial diperiksa paling akhir.** Captcha diverifikasi **sebelum** validasi dan pengecekan email/kata sandi, jadi bot tidak bisa memakai endpoint login untuk menguji kredensial tanpa melewati captcha lebih dulu.
+
+### Tampilan di Frontend
+
+Komponen `frontend/src/components/auth/MathCaptcha.jsx` menampilkan soal dan kolom jawaban tepat di atas tombol **Masuk**, dan responsif:
+
+- **Mobile (`< sm`)** — soal di atas, kolom jawaban di bawahnya (selebar penuh).
+- **Desktop (`≥ sm`)** — soal di kiri, kolom jawaban di kanan dalam satu baris.
+
+Tersedia tombol **muat ulang** (ikon ↻) untuk meminta soal baru. Setelah login gagal — apa pun penyebabnya — soal otomatis dimuat ulang, karena token server hanya bisa dipakai sekali.
+
+> Captcha tidak menggantikan kata sandi yang kuat. Gunakan kata sandi yang panjang dan unik, serta aktifkan HTTPS di produksi.
+
+### Troubleshooting
+
+**Muncul pesan “Captcha sudah dipakai” / “Captcha sudah kedaluwarsa”.** Soal hanya berlaku 5 menit dan sekali pakai. Klik ikon muat ulang (↻) di kotak captcha untuk mendapatkan soal baru, lalu segera isi jawabannya.
+
+**Muncul pesan “Terlalu banyak jawaban captcha yang salah”.** Perlindungan per-IP sedang aktif (10 kegagalan dalam 15 menit). Tunggu beberapa menit, lalu coba lagi.
+
+**Captcha gagal dimuat.** Pastikan `CORS_ORIGIN` sudah benar dan backend dapat diakses. Bila endpoint `/api/auth/captcha` terhalang (mis. oleh proxy/nginx yang memblokir cookie), cookie pengikat tidak akan ter-set dan verifikasi akan selalu gagal.
 
 ## Struktur Proyek
 

@@ -40,8 +40,16 @@ export function AuthProvider({ children }) {
     })();
   }, [clearSession]);
 
-  const login = useCallback(async (email, password) => {
-    const { data } = await api.post('/auth/login', { email, password });
+  // `captcha` membawa { token, answer } dari soal matematika di halaman login.
+  // Backend memverifikasinya sebelum memeriksa kredensial, jadi login tanpa
+  // captcha yang valid selalu ditolak (400) — lihat backend/src/routes/auth.routes.js.
+  const login = useCallback(async (email, password, captcha) => {
+    const { data } = await api.post('/auth/login', {
+      email,
+      password,
+      captchaToken: captcha?.token,
+      captchaAnswer: captcha?.answer,
+    });
     setAccessToken(data.accessToken);
     setUser(data.user);
     return data.user;

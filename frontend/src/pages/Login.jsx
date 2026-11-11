@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Alert, Box, Button, Paper, Stack, TextField, Typography } from '@mui/material';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import MathCaptcha from '../components/auth/MathCaptcha';
 
 export default function Login() {
   const { login, isAuthenticated, needsSetup } = useAuth();
@@ -9,8 +10,17 @@ export default function Login() {
   const location = useLocation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [captcha, setCaptcha] = useState({ token: '', answer: '' });
+  // Menaikkan nilai ini me-remount <MathCaptcha> sehingga soal dimuat ulang —
+  // token captcha bersifat sekali pakai, jadi setiap percobaan login (termasuk
+  // yang gagal) harus memakai soal baru.
+  const [captchaAttempt, setCaptchaAttempt] = useState(0);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const handleCaptchaChange = useCallback((value) => {
+    setCaptcha(value || { token: '', answer: '' });
+  }, []);
 
   if (needsSetup) return <Navigate to="/setup" replace />;
   if (isAuthenticated) return <Navigate to={location.state?.from?.pathname || '/'} replace />;
@@ -18,12 +28,28 @@ export default function Login() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+
+    // Dicek lebih dulu di sisi klien supaya percobaan yang jelas tidak lengkap
+    // tidak menghabiskan token captcha (dan kuota rate limit).
+    if (!captcha.token) {
+      setError('Captcha belum siap. Tunggu soal muncul atau tekan tombol muat ulang.');
+      return;
+    }
+    if (!String(captcha.answer).trim()) {
+      setError('Jawaban captcha wajib diisi.');
+      return;
+    }
+
     setLoading(true);
     try {
-      await login(email, password);
+      await login(email, password, captcha);
       navigate(location.state?.from?.pathname || '/', { replace: true });
     } catch (err) {
       setError(err.response?.data?.message || 'Gagal masuk. Periksa email dan kata sandi Anda.');
+      // Soal lama sudah terpakai di server (berhasil didekripsi = hangus),
+      // jadi selalu terbitkan soal baru setelah kegagalan apa pun.
+      setCaptcha({ token: '', answer: '' });
+      setCaptchaAttempt((n) => n + 1);
     } finally {
       setLoading(false);
     }
@@ -57,7 +83,7 @@ export default function Login() {
         component="form"
         onSubmit={handleSubmit}
         variant="outlined"
-        sx={{ p: 4, width: '100%', maxWidth: 380, position: 'relative' }}
+        sx={{ p: { xs: 2.5, sm: 4 }, width: '100%', maxWidth: 380, position: 'relative' }}
       >
         <Stack direction="row" alignItems="center" spacing={1.25} sx={{ mb: 3 }}>
           <Box sx={{ width: 11, height: 11, borderRadius: '3px', bgcolor: 'primary.main' }} />
@@ -94,6 +120,9 @@ export default function Login() {
             required
             fullWidth
           />
+          {/* Captcha matematika — jawaban diverifikasi server sebelum kredensial
+              diperiksa (lihat backend/src/routes/auth.routes.js). */}
+          <MathCaptcha key={captchaAttempt} onChange={handleCaptchaChange} disabled={loading} />
           <Button type="submit" variant="contained" size="large" disabled={loading} fullWidth>
             {loading ? 'Memproses…' : 'Masuk'}
           </Button>
