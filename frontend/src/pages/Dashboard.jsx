@@ -19,6 +19,7 @@ import { useSocketEvent } from '../hooks/useSocket';
 import MonitorRow from '../components/monitors/MonitorRow';
 import MonitorFormDialog from '../components/monitors/MonitorFormDialog';
 import ConfirmDialog from '../components/common/ConfirmDialog';
+import ListPagination, { DEFAULT_PAGE_SIZE } from '../components/common/ListPagination';
 
 const HEARTBEAT_LIMIT = 40;
 const REFRESH_INTERVAL_MS = 60 * 1000;
@@ -32,6 +33,8 @@ export default function Dashboard() {
   const [formOpen, setFormOpen] = useState(false);
   const [editingMonitor, setEditingMonitor] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
   const loadMonitors = useCallback(async ({ silent = false } = {}) => {
     try {
@@ -101,6 +104,26 @@ export default function Dashboard() {
     return { total: monitors.length, up, down, avgResponse };
   }, [monitors]);
 
+  // Pagination dihitung dari hasil filter, lalu daftar dipotong dengan angka
+  // yang sama supaya isi baris dan kontrol pagination selalu sinkron.
+  const pageCount = Math.max(1, Math.ceil(filteredMonitors.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const paginatedMonitors = useMemo(
+    () => filteredMonitors.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [filteredMonitors, currentPage, pageSize]
+  );
+
+  // Kembali ke halaman 1 setiap kali filter/pencarian/ukuran halaman berubah,
+  // dan jaga agar halaman aktif tidak melewati jumlah halaman yang tersedia
+  // (mis. setelah monitor dihapus atau difilter).
+  useEffect(() => {
+    setPage(1);
+  }, [search, statusFilter, pageSize]);
+
+  useEffect(() => {
+    setPage((prev) => Math.min(prev, pageCount));
+  }, [pageCount]);
+
   const handleCreateOrUpdate = async (payload) => {
     if (editingMonitor) {
       const { data } = await api.put(`/monitors/${editingMonitor._id}`, payload);
@@ -109,6 +132,10 @@ export default function Dashboard() {
     } else {
       const { data } = await api.post('/monitors', payload);
       setMonitors((prev) => [...(prev || []), { ...data.monitor, uptime24h: null }]);
+      // Monitor baru ditempatkan di akhir daftar; pindah ke halaman terakhir
+      // agar baris yang baru dibuat langsung terlihat (bukan "hilang" di
+      // halaman yang belum dibuka).
+      setPage(Math.max(1, Math.ceil((filteredMonitors.length + 1) / pageSize)));
       enqueueSnackbar('Monitor berhasil ditambahkan.', { variant: 'success' });
     }
     setFormOpen(false);
@@ -231,7 +258,7 @@ export default function Dashboard() {
             <Typography color="text.secondary">Tidak ada monitor yang cocok dengan pencarian.</Typography>
           </Box>
         ) : (
-          filteredMonitors.map((monitor) => (
+          paginatedMonitors.map((monitor) => (
             <MonitorRow
               key={monitor._id}
               monitor={monitor}
@@ -246,6 +273,17 @@ export default function Dashboard() {
           ))
         )}
       </Paper>
+
+      {monitors && monitors.length > 0 && filteredMonitors.length > 0 && (
+        <ListPagination
+          page={currentPage}
+          pageSize={pageSize}
+          total={filteredMonitors.length}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+          itemLabel="monitor"
+        />
+      )}
 
       <MonitorFormDialog
         open={formOpen}

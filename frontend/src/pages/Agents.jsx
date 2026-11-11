@@ -48,6 +48,7 @@ import api from '../api/axios';
 import { useSocketEvent } from '../hooks/useSocket';
 import { StatusDot, StatusBadge } from '../components/monitors/StatusPieces';
 import ConfirmDialog from '../components/common/ConfirmDialog';
+import ListPagination, { DEFAULT_PAGE_SIZE } from '../components/common/ListPagination';
 
 const REFRESH_INTERVAL_MS = 60 * 1000;
 
@@ -723,6 +724,8 @@ export default function Agents() {
   const [tokenTarget, setTokenTarget] = useState(null);
   const [issuedToken, setIssuedToken] = useState('');
   const [tokenOpen, setTokenOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
   const loadAgents = useCallback(async ({ silent } = {}) => {
     try {
@@ -783,6 +786,25 @@ export default function Agents() {
     };
   }, [agents]);
 
+  // Pagination dihitung dari hasil pencarian agar isi baris dan kontrol
+  // pagination selalu sinkron.
+  const pageCount = Math.max(1, Math.ceil(filteredAgents.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const paginatedAgents = useMemo(
+    () => filteredAgents.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [filteredAgents, currentPage, pageSize]
+  );
+
+  // Kembali ke halaman 1 saat pencarian atau ukuran halaman berubah, dan jaga
+  // halaman aktif tidak melewati jumlah halaman yang tersedia.
+  useEffect(() => {
+    setPage(1);
+  }, [search, pageSize]);
+
+  useEffect(() => {
+    setPage((prev) => Math.min(prev, pageCount));
+  }, [pageCount]);
+
   const handleCreateOrUpdate = async (payload) => {
     const normalized = {
       ...payload,
@@ -799,6 +821,9 @@ export default function Agents() {
       setAgents((prev) => [created, ...(prev || [])]);
       setIssuedToken(res.data.token);
       setTokenOpen(true);
+      // Agent baru ditempatkan di awal daftar; pastikan halaman aktif adalah
+      // halaman pertama supaya baris tersebut terlihat setelah dialog ditutup.
+      setPage(1);
       enqueueSnackbar('Agent ditambahkan.', { variant: 'success' });
     }
     setFormOpen(false);
@@ -931,7 +956,7 @@ export default function Agents() {
             </Typography>
           </Box>
         ) : (
-          filteredAgents.map((agent) => (
+          paginatedAgents.map((agent) => (
             <AgentRow
               key={agent._id}
               agent={agent}
@@ -946,6 +971,17 @@ export default function Agents() {
           ))
         )}
       </Paper>
+
+      {agents && agents.length > 0 && filteredAgents.length > 0 && (
+        <ListPagination
+          page={currentPage}
+          pageSize={pageSize}
+          total={filteredAgents.length}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+          itemLabel="agent"
+        />
+      )}
 
       <AgentFormDialog
         open={formOpen}

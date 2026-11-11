@@ -168,7 +168,7 @@ export default function MathCaptcha({ onChange, disabled = false, error: externa
           </Stack>
 
           <TextField
-            label="Jawaban"
+            label="Jawab"
             size="small"
             value={answer}
             onChange={handleAnswerChange}
@@ -179,7 +179,7 @@ export default function MathCaptcha({ onChange, disabled = false, error: externa
               pattern: '[0-9-]*',
               autoComplete: 'off',
               maxLength: 5,
-              'aria-label': 'Jawaban captcha',
+              'aria-label': 'Jawab captcha',
             }}
             error={isError}
             fullWidth
